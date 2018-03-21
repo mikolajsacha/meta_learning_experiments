@@ -1,0 +1,9 @@
+argh
+numpy
+six
+tqdm
+tables
+pandas
+tensorflow-gpu
+keras
+h5py

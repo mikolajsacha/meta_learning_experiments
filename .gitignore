@@ -1,0 +1,15 @@
+# pycharm files
+.idea/
+
+
+# python compiled files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# log files
+*.log
+log/
+
+# data files
+data/
