@@ -70,8 +70,9 @@ class MetaLearnerModel(object):
         self.learner_grad_placeholder = tf.placeholder(shape=(self.predict_model.output_size,), dtype=tf.float32,
                                                        name='learner_grad_ph')
 
-        self.chained_grads = tf.gradients(self.train_model.output, self.train_model._collected_trainable_weights,
-                                          grad_ys=self.learner_grad_placeholder)
+        with tf.control_dependencies(self.init_train_states_updates):
+            self.chained_grads = tf.gradients(self.train_model.output, self.train_model._collected_trainable_weights,
+                                              grad_ys=self.learner_grad_placeholder)
 
         self.batch_grads_placeholder = [tf.placeholder(shape=t.get_shape(), dtype=tf.float32,
                                                        name='batch_grad_ph_{}'.format(i))
@@ -109,29 +110,36 @@ class MetaLearnerModel(object):
         batch_grads = []
 
         for sample in samples:
-            # initialize states
-            assert len(state_tensors) == len(sample.initial_states)
-            feed_dict = dict(zip(self.states_placeholder, sample.initial_states))
-            sess.run(self.init_train_states_updates, feed_dict=feed_dict)
-
-            # train step - train using chained gradients of learner loss and meta-learner output
+            # initialize states and train meta-learner using chained gradients of learner loss and meta-learner output
             inputs = standardize_predict_inputs(self.train_model, sample.inputs)
 
-            feed_dict = dict(zip(input_tensors, inputs))
+            assert len(state_tensors) == len(sample.initial_states)
+            feed_dict = {}
+
+            for state_ph, state_val in zip(self.states_placeholder, sample.initial_states):
+                feed_dict[state_ph] = state_val
+
+            for input_tens, input_val in zip(input_tensors, inputs):
+                feed_dict[input_tens] = input_val
+
             feed_dict[self.learner_grad_placeholder] = sample.learner_grads
 
-            grads = sess.run(self.chained_grads, feed_dict=feed_dict)
+            evaluation = sess.run(self.chained_grads + self.init_train_states_updates, feed_dict=feed_dict)
+            sample_grads = evaluation[:len(self.chained_grads)]
 
+            # batch_grads = mean of sample grads
             if len(batch_grads) == 0:
-                batch_grads = grads
+                batch_grads = sample_grads
             else:
-                for i, g in enumerate(grads):
+                for i, g in enumerate(sample_grads):
                     batch_grads[i] += g
 
         for i in range(len(batch_grads)):
             batch_grads[i] /= len(samples)
 
+        # train on batch_grads using custom optimizer
         feed_dict = dict(zip(self.batch_grads_placeholder, batch_grads))
         sess.run(self.train_updates, feed_dict)
 
+        # copy weights from 'train' meta_learner to 'predict' meta_learner
         self.copy_train_weights()

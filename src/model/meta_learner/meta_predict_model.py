@@ -38,7 +38,6 @@ class MetaPredictLearnerModel(Model, Optimizer):
         # for BPTT (many-to-one) we need to store values of last inputs together with value of last output
         # to save memory, I use tensors with constant shape in circular way, marking current index
         self.current_backprop_index = tf.Variable(0, dtype=tf.int32)
-        self.predictions_counter = tf.Variable(0, dtype=tf.int32)
 
         self.initial_states = []
         self.states_history = []
@@ -100,7 +99,6 @@ class MetaPredictLearnerModel(Model, Optimizer):
             with tf.control_dependencies(updates):
                 new_backprop_index = tf.mod(tf.add(self.current_backprop_index, 1), self.backprop_depth)
                 updates += [
-                    tf.assign(self.predictions_counter, tf.add(self.predictions_counter, 1)),
                     tf.assign(self.current_backprop_index, new_backprop_index)
                 ]
 
@@ -114,9 +112,6 @@ class MetaPredictLearnerModel(Model, Optimizer):
         for layer in self.layers:
             if layer.stateful:
                 self.state_tensors += layer.states
-
-        self.initial_states = [tf.Variable(tf.zeros(shape=tuple(t.get_shape())), name='init_state_{}'.format(i))
-                               for i, t in enumerate(self.state_tensors)]
 
         self.states_history = [tf.Variable(t, name='states_history_{}'.format(i))
                                for i, t in enumerate(self._init_history_tensors(self.state_tensors))]
@@ -140,16 +135,13 @@ class MetaPredictLearnerModel(Model, Optimizer):
         super(MetaPredictLearnerModel, self).reset_states()
 
         updates = [
-            K.update(self.current_backprop_index, 0),
-            K.update(self.predictions_counter, 0)
+            K.update(self.current_backprop_index, 0)
         ]
 
         K.get_session().run(updates)
 
-    def roll_and_truncate(self, arr: np.ndarray, backprop_ind: int, backprop_counts: int):
+    def roll_and_squeeze(self, arr: np.ndarray, backprop_ind: int):
         rolled = np.roll(arr, shift=self.backprop_depth - backprop_ind, axis=0)
-        if backprop_counts < rolled.shape[0]:
-            rolled = rolled[-backprop_counts:]
         squeezed = np.squeeze(rolled)
         return squeezed
 
@@ -162,24 +154,24 @@ class MetaPredictLearnerModel(Model, Optimizer):
         ins = standardize_train_inputs(self.learner, valid_x, valid_y)
         feed_dict = dict(zip(self.learner_inputs, ins))
 
-        fetches = [self.predictions_counter, self.current_backprop_index, self.learner_grads, self.current_output] \
-                  + self.initial_states + self.inputs_history + self.states_history + self.learner_weights_history
+        fetches = [self.current_backprop_index, self.learner_grads, self.current_output] \
+                  + self.inputs_history + self.states_history + self.learner_weights_history
 
         evaluated = K.get_session().run(fetches, feed_dict=feed_dict)
 
-        backprop_counts, backprop_ind = evaluated[0], evaluated[1]
-        learner_grads = evaluated[2]
-        final_output = evaluated[3].flatten()
+        backprop_ind = evaluated[0]
+        learner_grads = evaluated[1]
+        final_output = evaluated[2].flatten()
 
-        i = 4 + len(self.initial_states)
+        i = 3
         j = i + len(self.inputs_history)
-        inputs_history = [self.roll_and_truncate(e, backprop_ind, backprop_counts) for e in evaluated[i: j]]
+        inputs_history = [self.roll_and_squeeze(e, backprop_ind) for e in evaluated[i: j]]
 
         i = j
         j = i + len(self.states_history)
-        states_history = [self.roll_and_truncate(e, backprop_ind, backprop_counts) for e in evaluated[i: j]]
+        states_history = [self.roll_and_squeeze(e, backprop_ind) for e in evaluated[i: j]]
 
-        learner_params_history = [self.roll_and_truncate(e, backprop_ind, backprop_counts) for e in evaluated[j:]]
+        learner_params_history = [self.roll_and_squeeze(e, backprop_ind) for e in evaluated[j:]]
 
         if self.backprop_depth == 1:
             initial_learner_weights = learner_params_history
@@ -207,7 +199,7 @@ class MetaPredictLearnerModel(Model, Optimizer):
             final_output=final_output,
             learner_training_batches=learner_training_batches,
             learner_validation_batch=(valid_x, valid_y),
-            initial_learner_weights=initial_learner_weights,
+            initial_learner_weights=initial_learner_weights
         )
 
     def _retrieve_no_debug_training_sample(
@@ -218,19 +210,18 @@ class MetaPredictLearnerModel(Model, Optimizer):
         ins = standardize_train_inputs(self.learner, valid_x, valid_y)
         feed_dict = dict(zip(self.learner_inputs, ins))
 
-        fetches = [self.predictions_counter, self.current_backprop_index, self.learner_grads] \
-                  + self.initial_states + self.inputs_history + self.states_history
+        fetches = [self.current_backprop_index, self.learner_grads] + self.inputs_history + self.states_history
 
         evaluated = K.get_session().run(fetches, feed_dict=feed_dict)
 
-        backprop_counts, backprop_ind = evaluated[0], evaluated[1]
-        learner_grads = evaluated[2]
+        backprop_ind = evaluated[0]
+        learner_grads = evaluated[1]
 
-        i = 3 + len(self.initial_states)
+        i = 2
         j = i + len(self.inputs_history)
-        inputs_history = [self.roll_and_truncate(e, backprop_ind, backprop_counts) for e in evaluated[i: j]]
+        inputs_history = [self.roll_and_squeeze(e, backprop_ind) for e in evaluated[i: j]]
 
-        states_history = [self.roll_and_truncate(e, backprop_ind, backprop_counts) for e in evaluated[j:]]
+        states_history = [self.roll_and_squeeze(e, backprop_ind) for e in evaluated[j:]]
 
         if self.backprop_depth == 1:
             initial_states = states_history

@@ -35,11 +35,11 @@ def lstm_train_meta_learner(backprop_depth: int, batch_size: int, hidden_state_s
     full_lstm_input = Concatenate(axis=-1, name='concat_grads_loss')([preprocessed_grads_l, preprocessed_grads_r,
                                                                       preprocessed_loss_l, preprocessed_loss_r])
 
-    lstm_1_output = LSTM(hidden_state_size, stateful=False, return_sequences=True, name='lstm_1')(full_lstm_input)
-    lstm_2_output = LSTM(hidden_state_size, stateful=False, name='lstm_2')(lstm_1_output)
+    lstm_1_output = LSTM(hidden_state_size, stateful=False, return_sequences=False, name='lstm_1')(full_lstm_input)
+    # lstm_2_output = LSTM(hidden_state_size, stateful=False, name='lstm_2')(lstm_1_output)
 
-    lr_dense = Dense(hidden_state_size, name='learning_rate_dense_1', activation='relu')(lstm_2_output)
-    forget_dense = Dense(hidden_state_size, name='forget_rate_dense_1', activation='relu')(lstm_2_output)
+    lr_dense = Dense(hidden_state_size, name='learning_rate_dense_1', activation='relu')(lstm_1_output)
+    forget_dense = Dense(hidden_state_size, name='forget_rate_dense_1', activation='relu')(lstm_1_output)
 
     lr_factor = Dense(1, name='learning_rate_dense_2', activation='sigmoid',
                       kernel_initializer=RandomNormal(mean=0.0, stddev=initializer_std),
@@ -85,16 +85,16 @@ def lstm_predict_meta_learner(learner: Model, backprop_depth: int, batch_size: i
                                                                       preprocessed_loss_l, preprocessed_loss_r])
 
     lstm_1_full_output = LSTM(hidden_state_size, stateful=True, return_state=True,
-                              return_sequences=True, name='lstm_1')(full_lstm_input)
+                              return_sequences=False, name='lstm_1')(full_lstm_input)
     lstm_1_output = lstm_1_full_output[0]
     states_1_outputs = lstm_1_full_output[1:]
 
-    lstm_2_full_output = LSTM(hidden_state_size, stateful=True, return_state=True, name='lstm_2')(lstm_1_output)
-    lstm_2_output = lstm_2_full_output[0]
-    states_2_outputs = lstm_2_full_output[1:]
+    # lstm_2_full_output = LSTM(hidden_state_size, stateful=True, return_state=True, name='lstm_2')(lstm_1_output)
+    # lstm_2_output = lstm_2_full_output[0]
+    # states_2_outputs = lstm_2_full_output[1:]
 
-    lr_dense = Dense(hidden_state_size, name='learning_rate_dense_1', activation='relu')(lstm_2_output)
-    forget_dense = Dense(hidden_state_size, name='forget_rate_dense_1', activation='relu')(lstm_2_output)
+    lr_dense = Dense(hidden_state_size, name='learning_rate_dense_1', activation='relu')(lstm_1_output)
+    forget_dense = Dense(hidden_state_size, name='forget_rate_dense_1', activation='relu')(lstm_1_output)
 
     lr_factor = Dense(1, name='learning_rate_dense_2', activation='sigmoid')(lr_dense)
     forget_factor = Dense(1, name='forget_rate_dense_2', activation='sigmoid')(forget_dense)
@@ -109,7 +109,7 @@ def lstm_predict_meta_learner(learner: Model, backprop_depth: int, batch_size: i
     return MetaPredictLearnerModel(learner=learner, train_mode=True, backpropagation_depth=backprop_depth,
                                    inputs=[grads_input, loss_input, params_input],
                                    input_tensors=[grads_tensor, loss_tensor, params_tensor],
-                                   states_outputs=states_1_outputs + states_2_outputs, outputs=output,
+                                   states_outputs=states_1_outputs, outputs=output,
                                    debug_mode=debug_mode)
 
 
