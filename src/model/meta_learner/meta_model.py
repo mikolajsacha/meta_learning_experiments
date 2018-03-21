@@ -111,7 +111,6 @@ class MetaLearnerModel(object):
         for sample in samples:
             # initialize states and train meta-learner using chained gradients of learner loss and meta-learner output
             inputs = standardize_predict_inputs(self.train_model, sample.inputs)
-
             assert len(state_tensors) == len(sample.initial_states)
             feed_dict = {}
 

@@ -14,7 +14,7 @@ def conv_block(n_filters: int, k: int, pool_size):
     return conv_fun
 
 
-def build_simple_cnn(input_shape, num_outputs, n_filters=32) -> Model:
+def build_simple_cnn(input_shape, num_outputs, n_filters=16) -> Model:
     if len(input_shape) != 3:
         raise Exception("Input shape should be a tuple (nb_channels, nb_rows, nb_cols)")
 
