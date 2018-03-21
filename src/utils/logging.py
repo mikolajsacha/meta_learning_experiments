@@ -24,3 +24,16 @@ def configure_logger(name: str, level: int) -> logging.Logger:
     logger.addHandler(fh)
     logger.addHandler(ch)
     return logger
+
+
+def str_to_log_level(key: str) -> int:
+    key_l = key.lower()
+    if key_l == 'fatal':
+        return logging.FATAL
+    if key_l == 'error':
+        return logging.ERROR
+    if key_l == 'warning':
+        return logging.WARNING
+    if key_l == 'debug':
+        return logging.DEBUG
+    return logging.INFO

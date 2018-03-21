@@ -40,6 +40,8 @@ class MetaLearningTask(object):
             backpropagation_padding: int,
             training_history_path: str,
             meta_learner_weights_path: str,
+            best_meta_learner_weights_path: str,
+            learner_weights_path: str,
             logger: Logger,
             continue_task: bool = False,
             task_checkpoint_path: Optional[str] = None,
@@ -51,7 +53,9 @@ class MetaLearningTask(object):
         :param backpropagation_depth: depth of BPTT when training meta-learner
         :param backpropagation_padding: padding of BPTT (how often to perform BPTT) when training meta-learner
         :param training_history_path: path to output file with training history
-        :param meta_learner_weights_path: path to output file with history of MetaLearner weights during training
+        :param meta_learner_weights_path: path to output file with current MetaLearner weights
+        :param best_meta_learner_weights_path: path to output file with MetaLearner weights that had best valid. loss
+        :param learner_weights_path: path to output file with Learner initial weights
         :param logger: Logger
         :param continue_task: whether to continue previously interrupted task
         :param task_checkpoint_path: optional path to file with checkpoint data to save task/continue interrupted task
@@ -61,6 +65,7 @@ class MetaLearningTask(object):
 
         self.training_history_path = training_history_path
         self.meta_learner_weights_path = meta_learner_weights_path
+        self.best_meta_learner_weights_path = best_meta_learner_weights_path
         self.task_checkpoint_path = task_checkpoint_path
 
         self.learner = None
@@ -88,7 +93,15 @@ class MetaLearningTask(object):
 
         self.backpropagation_depth = backpropagation_depth
         self.backpropagation_padding = backpropagation_padding
-        self.initial_learner_weights = learner_factory().get_weights()
+
+        dummy_learner = learner_factory()
+
+        if os.path.isfile(learner_weights_path):
+            dummy_learner.load_weights(learner_weights_path)
+        else:
+            dummy_learner.save_weights(learner_weights_path)
+
+        self.initial_learner_weights = dummy_learner.get_weights()
 
     def meta_train_step(
             self,
@@ -252,6 +265,8 @@ class MetaLearningTask(object):
         :param learner_batch_size: size of a training batch for Learner
         :param epoch_number: epoch number for displaying (optional)
         """
+        self.meta_learner.train_mode = True
+
         desc = 'Meta-Training' if epoch_number is None else 'Meta-Training (meta-epoch {})'.format(epoch_number + 1)
         random_learners_ind = random.sample(range(len(self.meta_dataset.meta_train_set)), n_meta_train_steps)
         for i in tqdm(range(n_meta_train_steps), desc=desc):
@@ -292,6 +307,34 @@ class MetaLearningTask(object):
                     f.write(msg)
                     f.write('\n')
 
+    def _compile(self, meta_lr, epoch):
+        K.clear_session()
+        self.learner = self.learner_factory()
+
+        # we need to compile learner before constructing meta_learner, and then set optimizer to meta_learner
+        self.learner.compile(loss='categorical_crossentropy',
+                             optimizer=SGD(lr=0.0),  # dummy optimizer
+                             metrics=['accuracy'])
+
+        self.meta_learner = self.meta_learner_factory(self.learner)
+
+        self.meta_learner.predict_model.compile(loss='mae',  # we don't use loss here anyway
+                                                optimizer=SGD(lr=0.0),  # dummy optimizer
+                                                metrics=[])
+
+        self.meta_learner.train_model.compile(loss='mae',  # we don't use loss here anyway
+                                              optimizer=CustomAdam(lr=meta_lr, clipvalue=0.25),
+                                              metrics=[])
+
+        # now set real optimizer to be our meta-learner predict model
+        self.learner.optimizer = self.meta_learner.predict_model
+
+        # initialize some additional tensors used for meta-training
+        self.meta_learner.compile()
+
+        if epoch > 0 and os.path.isfile(self.meta_learner_weights_path):
+            self.meta_learner.load_weights(self.meta_learner_weights_path)
+
     def meta_train(
             self,
             lr_scheduler: Callable[[int], float],
@@ -319,58 +362,37 @@ class MetaLearningTask(object):
         best_loss = None
         epochs_with_no_gain = 0
 
+        if self.starting_epoch == 0:
+            self._compile(lr, self.starting_epoch)
+            self.logger.info("Validating Meta-Learner on start...")
+            self.meta_validate_epoch(
+                n_meta_valid_steps=n_meta_valid_steps,
+                n_learner_batches=n_learner_batches,
+                learner_batch_size=learner_batch_size,
+                epoch_number=-1)
+
+        if self.starting_epoch > 0 and os.path.isfile(self.meta_learner_weights_path):
+            self.meta_learner.load_weights(self.meta_learner_weights_path)
+
         for i in tqdm(range(n_meta_epochs), desc='Running Meta-Training'):
             epoch = self.starting_epoch + i
+            epoch_start = time.time()
 
-            # reset backend session at each epoch to avoid memory leaks etc
-            K.clear_session()
-
-            self.learner = self.learner_factory()
-
-            # we need to compile learner before constructing meta_learner, and then set optimizer to meta_learner
-            self.learner.compile(loss='categorical_crossentropy',
-                                 optimizer=SGD(lr=0.0),  # dummy optimizer
-                                 metrics=['accuracy'])
-
-            self.meta_learner = self.meta_learner_factory(self.learner)
-
-            self.meta_learner.predict_model.compile(loss='mae',  # we don't use loss here anyway
-                                                    optimizer=SGD(lr=0.0),  # dummy optimizer
-                                                    metrics=[])
-
-            self.meta_learner.train_model.compile(loss='mae',  # we don't use loss here anyway
-                                                  optimizer=CustomAdam(lr=lr, clipvalue=0.25),
-                                                  metrics=[])
-
-            if epoch > 0 and os.path.isfile(self.meta_learner_weights_path):
-                self.meta_learner.load_weights(self.meta_learner_weights_path)
-
-            # now set real optimizer to be our meta-learner predict model
-            self.learner.optimizer = self.meta_learner.predict_model
-
-            # initialize some additional tensors
-            self.meta_learner.compile()
-
-            if epoch == 0:
-                self.logger.info("Validating Meta-Learner on start...")
-                self.meta_validate_epoch(
-                    n_meta_valid_steps=n_meta_valid_steps,
-                    n_learner_batches=n_learner_batches,
-                    learner_batch_size=learner_batch_size,
-                    epoch_number=epoch-1)
+            # reset backend session each epoch to avoid memory leaks etc
+            if epoch > 0:
+                self._compile(lr, epoch)
 
             if best_loss is None:
                 self.logger.info("Starting meta-epoch {:d}".format(epoch + 1))
             else:
                 self.logger.info("Starting meta-epoch {:d} (best loss: {:.5f})".format(epoch + 1, best_loss))
 
-            self.meta_learner.train_mode = True
-
-            epoch_start = time.time()
-            prev_lr = lr
-            lr = lr_scheduler(epoch)
             if self.optimizer_weights is not None:
                 self.meta_learner.train_model.optimizer.set_weights(self.optimizer_weights)
+
+            prev_lr = lr
+            lr = lr_scheduler(epoch)
+
             if prev_lr != lr:
                 self.logger.info("Changing meta-learning rate from {} to {} (meta-epoch {})"
                                  .format(prev_lr, lr, epoch + 1))
@@ -382,6 +404,7 @@ class MetaLearningTask(object):
                 n_meta_train_steps=n_meta_train_steps,
                 learner_batch_size=learner_batch_size,
                 epoch_number=epoch)
+
             valid_metrics = self.meta_validate_epoch(
                 n_learner_batches=n_learner_batches,
                 n_meta_valid_steps=n_meta_valid_steps,
@@ -399,6 +422,7 @@ class MetaLearningTask(object):
             if best_loss is None or valid_metrics[loss_ind] < best_loss:
                 best_loss = valid_metrics[loss_ind]
                 epochs_with_no_gain = 0
+                self.meta_learner.train_model.save(self.best_meta_learner_weights_path)
             else:
                 epochs_with_no_gain += 1
 

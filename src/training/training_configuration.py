@@ -1,6 +1,9 @@
 import os
 import logging
 from typing import List, Tuple
+import yaml
+
+from src.utils.logging import str_to_log_level, configure_logger
 
 
 class TrainingConfiguration(object):
@@ -83,3 +86,36 @@ class TrainingConfiguration(object):
         }
         msg = '\n'.join("{}: {}".format(k, v) for k, v in sorted(params.items(), key=lambda x: x[0]))
         self.logger.info("TRAINING CONFIGURATION:\n" + msg)
+
+
+def read_configuration(path: str) -> TrainingConfiguration:
+    with open(path, 'r') as stream:
+        conf = yaml.load(stream)
+
+    log_level = str_to_log_level(conf['logging_level'])
+    logger = configure_logger(name='train-meta-model', level=log_level)
+    lr_schedule = list(zip(conf['lr_schedule_epochs'], conf['lr_schedule_rates']))
+
+    return TrainingConfiguration(
+        continue_task=conf['continue_task'],
+        debug_mode=conf['debug_mode'],
+        dataset_key=conf['dataset_key'],
+        logger=logger,
+        lr_schedule=lr_schedule,
+        logging_level=conf['logging_level'],
+        meta_batch_size=conf['meta_batch_size'],
+        learner_batch_size=conf['learner_batch_size'],
+        n_learner_batches=conf['n_learner_batches'],
+        backpropagation_depth=conf['backpropagation_depth'],
+        backpropagation_padding=conf['backpropagation_padding'],
+        learner_train_size=conf['learner_train_size'],
+        learner_test_size=conf['learner_test_size'],
+        classes_per_learner_set=conf['classes_per_learner_set'],
+        n_train_sets=conf['n_train_sets'],
+        n_test_sets=conf['n_test_sets'],
+        n_meta_epochs=conf['n_meta_epochs'],
+        meta_early_stopping=conf['meta_early_stopping'],
+        meta_test_class_ratio=conf['meta_test_class_ratio'],
+        initial_learner_lr=conf['initial_learner_lr'],
+        hidden_state_size=conf['hidden_state_size'],
+        n_meta_valid_steps=conf['n_meta_valid_steps'])

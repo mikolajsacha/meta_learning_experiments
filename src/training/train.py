@@ -75,6 +75,8 @@ def run_meta_learning(conf: TrainingConfiguration, x: np.ndarray, y: np.ndarray)
         meta_learner_factory=meta_learner_factory,
         training_history_path=os.path.join(log_dir, "meta_training_history.txt"),
         meta_learner_weights_path=os.path.join(log_dir, "meta_weights.h5"),
+        best_meta_learner_weights_path=os.path.join(log_dir, "meta_weights_best.h5"),
+        learner_weights_path=os.path.join(log_dir, "learner_weights.h5"),
         debug_mode=conf.debug_mode,
         logger=logger)
 

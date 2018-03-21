@@ -1,11 +1,9 @@
 import argh
-import logging
 import os
 
 from src.datasets.cifar import load_cifar100
 from src.training.train import run_meta_learning
-from src.training.training_configuration import TrainingConfiguration
-from src.utils.logging import configure_logger
+from src.training.training_configuration import read_configuration
 
 
 def train(clear_logs: bool = False):
@@ -13,41 +11,14 @@ def train(clear_logs: bool = False):
         log_dir = os.environ['LOG_DIR']
         for filename in os.listdir(log_dir):
             filepath = os.path.join(log_dir, filename)
-            if os.path.isfile(filepath) and (filename.endswith('.txt') or filename.endswith('.log')):
+            if os.path.isfile(filepath) and (filename.endswith('.txt') or filename.endswith('.log')
+                                             or filename.endswith('h5')):
                 print("Clearing log file: {}".format(filename))
                 os.remove(filepath)
 
-    log_level = logging.INFO
-    logger = configure_logger(name='train-meta-model-test', level=log_level)
+    train_conf_path = os.path.join(os.environ['CONF_DIR'], 'training_configuration.yml')
 
-    lr_schedule = [
-        (0, 0.001)
-    ]
-
-    training_configuration = TrainingConfiguration(
-        continue_task=True,
-        debug_mode=False,
-        hidden_state_size=8,
-        n_meta_epochs=256,
-        meta_early_stopping=256,
-        lr_schedule=lr_schedule,
-        classes_per_learner_set=2,
-        meta_batch_size=4,
-        learner_batch_size=32,
-        n_learner_batches=32,
-        backpropagation_depth=16,
-        backpropagation_padding=4,
-        learner_train_size=32,
-        learner_test_size=96,
-        n_train_sets=64,
-        n_test_sets=64,
-        meta_test_class_ratio=0.3,
-        initial_learner_lr=0.05,
-        n_meta_valid_steps=64,
-        dataset_key="cifar100",
-        logger=logger,
-        logging_level=log_level)
-
+    training_configuration = read_configuration(train_conf_path)
     training_configuration.log_summary()
 
     X_train, y_train, X_test, y_test = load_cifar100()
