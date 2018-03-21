@@ -85,7 +85,6 @@ class MetaLearnerModel(object):
                                      for i, (w, train_w) in
                                      enumerate(zip(self.predict_model._collected_trainable_weights,
                                                    self.train_model._collected_trainable_weights))]
-        self.copy_train_weights()
 
         # tensors used only in debug mode
         if self.debug_mode:
@@ -140,6 +139,3 @@ class MetaLearnerModel(object):
         # train on batch_grads using custom optimizer
         feed_dict = dict(zip(self.batch_grads_placeholder, batch_grads))
         sess.run(self.train_updates, feed_dict)
-
-        # copy weights from 'train' meta_learner to 'predict' meta_learner
-        self.copy_train_weights()
