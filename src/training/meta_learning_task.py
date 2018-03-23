@@ -362,17 +362,15 @@ class MetaLearningTask(object):
         best_loss = None
         epochs_with_no_gain = 0
 
+        self._compile(lr, self.starting_epoch)
+
         if self.starting_epoch == 0:
-            self._compile(lr, self.starting_epoch)
             self.logger.info("Validating Meta-Learner on start...")
             self.meta_validate_epoch(
                 n_meta_valid_steps=n_meta_valid_steps,
                 n_learner_batches=n_learner_batches,
                 learner_batch_size=learner_batch_size,
                 epoch_number=-1)
-
-        if self.starting_epoch > 0 and os.path.isfile(self.meta_learner_weights_path):
-            self.meta_learner.load_weights(self.meta_learner_weights_path)
 
         for i in tqdm(range(n_meta_epochs), desc='Running Meta-Training'):
             epoch = self.starting_epoch + i
