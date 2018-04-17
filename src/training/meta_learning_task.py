@@ -13,6 +13,7 @@ from keras import Model
 import keras.backend as K
 
 from src.datasets.metadataset import MetaLearnerDataset
+from src.isotropy.lanczos import TopKEigenvaluesBatched
 from src.model.custom_optimizers import CustomAdam
 from src.model.meta_learner.meta_model import MetaLearnerModel
 from src.model.meta_learner.meta_training_sample import MetaTrainingSample
@@ -41,7 +42,6 @@ class MetaLearningTask(object):
             training_history_path: str,
             meta_learner_weights_path: str,
             best_meta_learner_weights_path: str,
-            learner_weights_path: str,
             logger: Logger,
             continue_task: bool = False,
             task_checkpoint_path: Optional[str] = None,
@@ -55,7 +55,6 @@ class MetaLearningTask(object):
         :param training_history_path: path to output file with training history
         :param meta_learner_weights_path: path to output file with current MetaLearner weights
         :param best_meta_learner_weights_path: path to output file with MetaLearner weights that had best valid. loss
-        :param learner_weights_path: path to output file with Learner initial weights
         :param logger: Logger
         :param continue_task: whether to continue previously interrupted task
         :param task_checkpoint_path: optional path to file with checkpoint data to save task/continue interrupted task
@@ -94,14 +93,7 @@ class MetaLearningTask(object):
         self.backpropagation_depth = backpropagation_depth
         self.backpropagation_padding = backpropagation_padding
 
-        dummy_learner = learner_factory()
-
-        if os.path.isfile(learner_weights_path):
-            dummy_learner.load_weights(learner_weights_path)
-        else:
-            dummy_learner.save_weights(learner_weights_path)
-
-        self.initial_learner_weights = dummy_learner.get_weights()
+        self.eigenvals_callback = None
 
     def meta_train_step(
             self,
@@ -123,7 +115,7 @@ class MetaLearningTask(object):
         learner_dataset = self.meta_dataset.meta_train_set[learner_ind]
 
         self.meta_learner.reset_states()
-        self.learner.set_weights(self.initial_learner_weights)
+        reset_weights(self.learner)
 
         train_batch_x, train_batch_y = learner_dataset.train_set.x, learner_dataset.train_set.y
         valid_batch_x, valid_batch_y = learner_dataset.test_set.x, learner_dataset.test_set.y
@@ -142,7 +134,7 @@ class MetaLearningTask(object):
         for i, (x, y) in enumerate(learner_training_batches[self.backpropagation_depth:]):
             self.learner.train_on_batch(x, y)
             if (i + 1) % self.backpropagation_padding == 0:
-                current_training_batches = learner_training_batches[i+1:i+1+self.backpropagation_depth]
+                current_training_batches = learner_training_batches[i + 1:i + 1 + self.backpropagation_depth]
                 training_sample = self.meta_learner.predict_model.retrieve_training_sample(
                     valid_batch_x, valid_batch_y, current_training_batches)
                 training_samples.append(training_sample)
@@ -158,12 +150,16 @@ class MetaLearningTask(object):
 
     def meta_valid_step(
             self,
+            epoch: int,
+            step: int,
             learner_ind: int,
             learner_batch_size: int,
             n_learner_batches: int) -> Tuple[List[float], List[float]]:
         """
         Evaluates meta-learning by using meta-optimizer to train a selected Learner (from meta-test Learners)
         and measuring its performance on its test dataset
+        :param epoch: number of current epoch
+        :param step: number of current step in epoch
         :param learner_ind: index of meta-test Learner to use for meta-learning step
         :param learner_batch_size: size of a training batch for Learner
         :param n_learner_batches: number of training batches
@@ -177,7 +173,7 @@ class MetaLearningTask(object):
         valid_batch_x, valid_batch_y = learner_dataset.test_set.x, learner_dataset.test_set.y
 
         self.meta_learner.reset_states()
-        self.learner.set_weights(self.initial_learner_weights)
+        reset_weights(self.learner)
 
         self.learner.fit_generator(
             generator=learner_dataset.train_set.batch_generator(batch_size=learner_batch_size, randomize=True),
@@ -186,6 +182,17 @@ class MetaLearningTask(object):
             verbose=0
         )
 
+        # compute shape of minimum at the end of the training
+        self.eigenvals_callback.X = train_batch_x
+        self.eigenvals_callback.y = train_batch_y
+
+        eigen_save_path = os.path.join(os.environ['LOG_DIR'],
+                                       'eigenvals/epoch_{}/step_{}_top_K_ev.npz'.format(epoch, step))
+        if not os.path.exists(os.path.dirname(eigen_save_path)):
+            os.makedirs(os.path.dirname(eigen_save_path))
+        self.eigenvals_callback.save(eigen_save_path)
+
+        # evaluate trained learner on train and valid sets
         meta_evaluation = (self.learner.evaluate(train_batch_x, train_batch_y, verbose=0),
                            self.learner.evaluate(valid_batch_x, valid_batch_y, verbose=0))
 
@@ -197,7 +204,7 @@ class MetaLearningTask(object):
             n_meta_valid_steps: int,
             n_learner_batches: int,
             learner_batch_size: int,
-            ) -> List[float]:
+    ) -> List[float]:
         """
         Runs a single "meta-epoch' of validating meta-learning model
         :param epoch_number: epoch number for displaying (optional)
@@ -216,8 +223,10 @@ class MetaLearningTask(object):
 
         desc = 'Meta-Validating' if epoch_number is None else 'Meta-Validating (meta-epoch {})'.format(epoch_number + 1)
         random_learners_ind = random.sample(range(len(self.meta_dataset.meta_test_set)), n_meta_valid_steps)
-        for ind in tqdm(random_learners_ind, desc=desc):
+        for i, ind in enumerate(tqdm(random_learners_ind, desc=desc)):
             train_metrics, valid_metrics = self.meta_valid_step(
+                epoch=epoch_number,
+                step=i,
                 learner_ind=ind,
                 learner_batch_size=learner_batch_size,
                 n_learner_batches=n_learner_batches
@@ -225,7 +234,7 @@ class MetaLearningTask(object):
             for i, (train_val, valid_val) in enumerate(zip(train_metrics, valid_metrics)):
                 batch_train_metrics[i] += train_val
                 batch_valid_metrics[i] += valid_val
-                batch_metrics_ratios[i] += valid_val/train_val
+                batch_metrics_ratios[i] += valid_val / train_val
 
         for i in range(len(self.learner.metrics_names)):
             batch_train_metrics[i] /= n_meta_valid_steps
@@ -287,7 +296,7 @@ class MetaLearningTask(object):
                 for j, (train_metric, valid_metric) in enumerate(zip(train_metrics, valid_metrics)):
                     batch_train_metrics[j] += train_metric
                     batch_valid_metrics[j] += valid_metric
-                    batch_metrics_ratios[j] += valid_metric/train_metric
+                    batch_metrics_ratios[j] += valid_metric / train_metric
 
             for j in range(len(batch_valid_metrics)):
                 batch_valid_metrics[j] /= meta_batch_size
@@ -307,7 +316,7 @@ class MetaLearningTask(object):
                     f.write(msg)
                     f.write('\n')
 
-    def _compile(self, meta_lr, epoch):
+    def _compile(self, meta_lr, epoch, learner_batch_size):
         K.clear_session()
         self.learner = self.learner_factory()
 
@@ -334,6 +343,14 @@ class MetaLearningTask(object):
 
         if epoch > 0 and os.path.isfile(self.meta_learner_weights_path):
             self.meta_learner.load_weights(self.meta_learner_weights_path)
+
+        self.eigenvals_callback = TopKEigenvaluesBatched(K=1, batch_size=learner_batch_size, logger=self.logger,
+                                                         save_dir="", save_eigenv=1)
+        self.eigenvals_callback.model = self.learner
+        self.eigenvals_callback.compile()
+
+        if epoch == 0:
+            self.eigenvals_callback.save_param_shapes(os.path.join(os.environ['LOG_DIR'], "top_K_ev_mapping.pkl"))
 
     def meta_train(
             self,
@@ -362,7 +379,7 @@ class MetaLearningTask(object):
         best_loss = None
         epochs_with_no_gain = 0
 
-        self._compile(lr, self.starting_epoch)
+        self._compile(lr, self.starting_epoch, learner_batch_size)
 
         if self.starting_epoch == 0:
             self.logger.info("Validating Meta-Learner on start...")
@@ -378,7 +395,7 @@ class MetaLearningTask(object):
 
             # reset backend session each epoch to avoid memory leaks etc
             if epoch > 0:
-                self._compile(lr, epoch)
+                self._compile(lr, epoch, learner_batch_size)
 
             if best_loss is None:
                 self.logger.info("Starting meta-epoch {:d}".format(epoch + 1))

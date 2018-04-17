@@ -25,9 +25,9 @@ def get_common_lstm_model_layers(hidden_state_size: int, lr_bias: float, f_bias:
         Lambda(lambda x: gradient_preprocessing_left(x), name='preprocess_l'),
         Lambda(lambda x: gradient_preprocessing_right(x), name='preprocess_r'),
         Concatenate(axis=-1, name='concat_lstm_inputs'),
-        LSTM(hidden_state_size, stateful=True, return_state=True, name='lstm'),
-        Dense(hidden_state_size, name='learning_rate_dense_1', activation='relu'),
-        Dense(hidden_state_size, name='forget_rate_dense_1', activation='relu'),
+        LSTM(hidden_state_size, stateful=True, return_state=True,
+             name='lstm', activation='relu'),
+        Dense(hidden_state_size, name='hidden_dense', activation='relu'),
         Dense(1, name='learning_rate_dense_2', activation='sigmoid',
               kernel_initializer=RandomNormal(mean=0.0, stddev=initializer_std),
               bias_initializer=Constant(value=lr_bias)),
@@ -57,11 +57,10 @@ def lstm_train_meta_learner(backprop_depth: int, batch_size: int, common_layers:
     lstm_full_output = common_layers[3](full_lstm_input)
     lstm_output = lstm_full_output[0]
 
-    lr_dense = common_layers[4](lstm_output)
-    forget_dense = common_layers[5](lstm_output)
+    dense_output = common_layers[4](lstm_output)
 
-    lr_factor = common_layers[6](lr_dense)
-    forget_factor = common_layers[7](forget_dense)
+    lr_factor = common_layers[5](dense_output)
+    forget_factor = common_layers[6](dense_output)
 
     final_grad = Lambda(lambda x: x[:, -1, :], name='final_grad_input')(grads_input)
 
@@ -103,11 +102,10 @@ def lstm_predict_meta_learner(learner: Model, backprop_depth: int, batch_size: i
     lstm_output = lstm_full_output[0]
     states_outputs = lstm_full_output[1:]
 
-    lr_dense = common_layers[4](lstm_output)
-    forget_dense = common_layers[5](lstm_output)
+    dense_output = common_layers[4](lstm_output)
 
-    lr_factor = common_layers[6](lr_dense)
-    forget_factor = common_layers[7](forget_dense)
+    lr_factor = common_layers[5](dense_output)
+    forget_factor = common_layers[6](dense_output)
 
     flat_grads = Flatten(name='flatten_grads_input')(grads_input)
 
