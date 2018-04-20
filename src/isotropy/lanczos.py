@@ -54,6 +54,7 @@ class TopKEigenvaluesBatched(Callback):
         self.parameters = None
         self.parameter_names = None
         self.parameter_shapes = None
+        self.spectral_norm_tensor = None
 
     def _construct_laszlo_operator_batched(self, dtype=np.float32):
         L = self.get_my_model().total_loss
@@ -104,13 +105,23 @@ class TopKEigenvaluesBatched(Callback):
             shape=shape)
 
     def compile(self):
-        self.logger.debug("Compiling TopKEignevaluesBattched Callback")
+        if self.logger is not None:
+            self.logger.debug("Compiling TopKEignevaluesBattched Callback")
         _op = self._construct_laszlo_operator_batched()
-        self._lanczos_tensor = lanczos_bidiag(_op, self.K)
+        self._lanczos_tensor = {self.K: lanczos_bidiag(_op, self.K)}
+        if self.K != 1:
+            self._lanczos_tensor[1] = lanczos_bidiag(_op, 1)
 
         self.parameters = self.get_my_model().trainable_weights
         self.parameter_names = [p.name for p in self.get_my_model().trainable_weights]
         self.parameter_shapes = [K.int_shape(p) for p in self.get_my_model().trainable_weights]
+
+        def get_spectral_norm():
+            # hessian is symmetrical, so spectral norm is equal to the largest absolute value of eigenvalues
+            biggest_eigen = self._compute_top(k=1, with_vectors=False)
+            return np.float32(biggest_eigen[0])
+
+        self.spectral_norm_tensor = tf.py_func(get_spectral_norm, [], tf.float32)
 
     def set_my_model(self, model):
         model.summary()
@@ -123,18 +134,22 @@ class TopKEigenvaluesBatched(Callback):
         else:
             return self.model
 
-    def _compute_top_K(self):
+    def _compute_top(self, k, with_vectors=True):
         if self.X is None or self.y is None:
             raise ValueError("Set self.X and self.y first")
         if self._lanczos_tensor is None:
             self.compile()
+        if k not in self._lanczos_tensor:
+            raise ValueError("No Lanczos Tensor created for K={}".format(k))
 
-        self.logger.debug("Computing bi-diagonalization using Laszlo algorithm")
-        res_laszlo = K.get_session().run(self._lanczos_tensor)
+        if self.logger is not None:
+            self.logger.debug("Computing bi-diagonalization using Laszlo algorithm")
+        lanczos_tensor = self._lanczos_tensor[k]
+        res_laszlo = K.get_session().run(lanczos_tensor)
         # According to https://en.wikipedia.org/wiki/Lanczos_algorithm
         # performing SVD on bi-diagonalized matrix returned by Lanczos
-        A = np.zeros(shape=(self.K + 1, self.K))
-        for i in range(self.K):
+        A = np.zeros(shape=(k + 1, k))
+        for i in range(k):
             A[i][i] = res_laszlo.alpha[i]
             A[i + 1][i] = res_laszlo.beta[i]
 
@@ -142,22 +157,39 @@ class TopKEigenvaluesBatched(Callback):
             Z = svd(A)
             V = res_laszlo.v
             # This "magic" formula is taken from wiki on Lanczos. Tested that it finds indeed eigenvectors
-            eigenvectors = V.dot(Z[2].T)
             eigenvalues = Z[1]
+            if with_vectors:
+                eigenvectors = V.dot(Z[2].T)
         except Exception:
-            self.logger.warning("Failed svd. Probably due to NaNs in A")
-            eigenvectors = np.zeros_like(res_laszlo.v)
-            eigenvalues = np.zeros(shape=(self.K,))
+            if self.logger is not None:
+                self.logger.warning("Failed svd. Probably due to NaNs in A")
+            eigenvalues = np.zeros(shape=(k,))
+            if with_vectors:
+                eigenvectors = np.zeros_like(res_laszlo.v)
 
-        self.logger.debug(eigenvectors[0:10])
+        if self.logger is not None:
+            self.logger.debug(eigenvalues[0:10])
 
-        return eigenvalues, eigenvectors
+        if with_vectors:
+            # noinspection PyUnboundLocalVariable
+            return eigenvalues, eigenvectors
+        return eigenvalues
 
-    def save(self, path, E=None, Ev=None):
+    def _compute_top_K(self, with_vectors=True):
+        return self._compute_top(self.K, with_vectors)
+
+    def save(self, path, E=None, Ev=None, with_vectors=True):
         if E is None or Ev is None:
-            E, Ev = self._compute_top_K()
-        self.logger.debug("Saving eigenvectors")
-        np.savez(os.path.join(self.save_dir, path), E=E, Ev=Ev)
+            if with_vectors:
+                E, Ev = self._compute_top_K(with_vectors=True)
+            else:
+                E = self._compute_top_K(with_vectors=False)
+        if self.logger is not None:
+            self.logger.debug("Saving eigenvectors")
+        if with_vectors:
+            np.savez(os.path.join(self.save_dir, path), E=E, Ev=Ev)
+        else:
+            np.savez(os.path.join(self.save_dir, path), E=E)
 
     def save_param_shapes(self, path):
         pickle.dump({"shapes": self.parameter_shapes, "names": self.parameter_names}, open(path, 'wb'))
@@ -171,7 +203,8 @@ class TopKEigenvaluesBatched(Callback):
                 self.save_param_shapes(os.path.join(self.save_dir, "top_K_ev_mapping.pkl"))
         self._this_epoch_ev = Ev
         self._epoch_begin_logs = logs
-        self.logger.debug(logs['top_K_e'])
+        if self.logger is not None:
+            self.logger.debug(logs['top_K_e'])
 
         gc.collect()  # Let go of previous Ev
 

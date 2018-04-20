@@ -1,5 +1,5 @@
 """ Comparing trained meta-learner to a normal optimizer """
-from typing import List, Callable
+from typing import List, Callable, Optional
 
 from itertools import islice
 from keras import Model
@@ -9,6 +9,7 @@ import math
 from keras.optimizers import Optimizer
 
 from src.datasets.metadataset import MetaLearnerDataset
+from src.training.meta_learning_task import reset_weights
 
 
 def learning_rate_grid_search(optimizer_factory: Callable[[float], Optimizer],
@@ -18,7 +19,7 @@ def learning_rate_grid_search(optimizer_factory: Callable[[float], Optimizer],
                               learner_batch_size: int,
                               learner: Model,
                               trainings_per_dataset: int,
-                              initial_learner_weights: List[np.ndarray]) -> float:
+                              initial_learner_weights: Optional[List[np.ndarray]] = None) -> float:
     """
     Performs grid-search on meta-train set to find best learning rate of optimizer and saves results on valid. set
     :param optimizer_factory: method that returns Optimizer for a given learning rate
@@ -46,7 +47,10 @@ def learning_rate_grid_search(optimizer_factory: Callable[[float], Optimizer],
             valid_batch_x, valid_batch_y = learner_dataset.test_set.x, learner_dataset.test_set.y
             for _ in range(trainings_per_dataset):
                 learner.optimizer = optimizer_factory(lr)
-                learner.set_weights(initial_learner_weights)
+                if initial_learner_weights is None:
+                    reset_weights(learner)
+                else:
+                    learner.set_weights(initial_learner_weights)
                 if isinstance(learner.optimizer, Model):
                     learner.optimizer.reset_states()
                 learner.fit_generator(
@@ -68,12 +72,12 @@ def learning_rate_grid_search(optimizer_factory: Callable[[float], Optimizer],
 
 
 def compare_optimizers(meta_dataset: MetaLearnerDataset,
-                       optimizer_factories: List[Callable[[], Optimizer]],
+                       optimizer_factories: List[Callable[[np.array, np.array], Optimizer]],
                        n_learner_batches: int,
                        learner_batch_size: int,
                        learner: Model,
                        trainings_per_dataset: int,
-                       initial_learner_weights: List[np.ndarray]) -> List[List[float]]:
+                       initial_learner_weights: Optional[List[np.ndarray]] = None) -> List[List[float]]:
     """
     Compares performance of two or more optimizers on meta-valid set
     :param meta_dataset: MetaLearnerDataset to get data from
@@ -96,12 +100,19 @@ def compare_optimizers(meta_dataset: MetaLearnerDataset,
 
         for _ in range(trainings_per_dataset):
             training_batches = list(islice(train_generator, n_learner_batches))
+            if initial_learner_weights is None:
+                reset_weights(learner)
+                current_initial_learner_weights = learner.get_weights()
             for i, optimizer_factory in enumerate(optimizer_factories):
-                # use same batches for all optimizers
-                learner.optimizer = optimizer_factory()
-                learner.set_weights(initial_learner_weights)
+                # use same batches and initial weights for all optimizers
+                learner.optimizer = optimizer_factory(learner_dataset.train_set.x, learner_dataset.train_set.y)
+                if initial_learner_weights is None:
+                    # noinspection PyUnboundLocalVariable
+                    learner.set_weights(current_initial_learner_weights)
+                else:
+                    learner.set_weights(initial_learner_weights)
                 learner.fit_generator(
-                    generator=(i for i in training_batches),
+                    generator=(b for b in training_batches),
                     steps_per_epoch=n_learner_batches,
                     epochs=1,
                     verbose=0

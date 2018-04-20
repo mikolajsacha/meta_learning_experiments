@@ -8,6 +8,7 @@ import numpy as np
 
 from src.model.meta_learner.meta_training_sample import MetaTrainingSample
 from src.model.util import get_trainable_params_count, get_input_tensors, standardize_train_inputs
+from src.training.training_configuration import TrainingConfiguration
 
 
 class MetaPredictLearnerModel(Model, Optimizer):
@@ -16,10 +17,10 @@ class MetaPredictLearnerModel(Model, Optimizer):
      The model takes previous parameter value and gradient/loss as inputs and outputs the new parameter value
     """
 
-    def __init__(self, learner: Model, train_mode: bool, backpropagation_depth: int, states_outputs: List[tf.Tensor],
-                 input_tensors: List[tf.Tensor], debug_mode: bool, inputs, outputs, name=None):
+    def __init__(self, learner: Model, configuration: TrainingConfiguration, train_mode: bool,
+                 states_outputs: List[tf.Tensor], input_tensors: List[tf.Tensor], inputs, outputs, name=None):
         Model.__init__(self, inputs, outputs, name)
-        self.debug_mode = debug_mode
+        self.debug_mode = configuration.debug_mode
         self.learner = learner
         self.learner_grads = K.concatenate([K.flatten(g) for g in
                                             K.gradients(self.learner.total_loss,
@@ -30,7 +31,7 @@ class MetaPredictLearnerModel(Model, Optimizer):
         self.input_tensors = input_tensors
         self.states_outputs = states_outputs
 
-        self.backprop_depth = backpropagation_depth
+        self.backprop_depth = configuration.backpropagation_depth
         self.train_mode = train_mode
 
         self.state_tensors = []
@@ -180,9 +181,11 @@ class MetaPredictLearnerModel(Model, Optimizer):
             initial_learner_weights = [hist[0] for hist in learner_params_history]
             initial_states = [hist[0] for hist in states_history]
 
-        # reshape grads_input and loss_input so they fit our training model
+        # reshape inputs so they fit our training model
         inputs_history[0] = np.expand_dims(np.transpose(inputs_history[0]), axis=-1)
         inputs_history[1] = np.expand_dims(np.transpose(inputs_history[1]), axis=-1)
+        if len(inputs_history) > 3:
+            inputs_history[3] = np.expand_dims(np.transpose(inputs_history[3]), axis=-1)
 
         # we need only final value of params_input for BPTT
         if self.backprop_depth != 1:
@@ -210,7 +213,8 @@ class MetaPredictLearnerModel(Model, Optimizer):
         ins = standardize_train_inputs(self.learner, valid_x, valid_y)
         feed_dict = dict(zip(self.learner_inputs, ins))
 
-        fetches = [self.current_backprop_index, self.learner_grads] + self.inputs_history + self.states_history
+        fetches = [self.current_backprop_index, self.learner_grads] + self.inputs_history \
+                  + self.states_history + self.learner_weights_history
 
         evaluated = K.get_session().run(fetches, feed_dict=feed_dict)
 
@@ -228,22 +232,23 @@ class MetaPredictLearnerModel(Model, Optimizer):
         else:
             initial_states = [hist[0] for hist in states_history]
 
-        # reshape grads_input and loss_input so they fit our training model
+        # reshape inputs so they fit our training model
         inputs_history[0] = np.expand_dims(np.transpose(inputs_history[0]), axis=-1)
         inputs_history[1] = np.expand_dims(np.transpose(inputs_history[1]), axis=-1)
+        if len(inputs_history) > 3:
+            inputs_history[3] = np.expand_dims(np.transpose(inputs_history[3]), axis=-1)
 
         # we need only final value of params_input for BPTT
-        if self.backprop_depth != 1:
-            inputs_history[2] = np.expand_dims(inputs_history[2][-1], axis=-1)
-
         if self.backprop_depth == 1:
             for i in range(len(inputs_history)):
                 inputs_history[i] = np.expand_dims(inputs_history[i], axis=-1)
+        else:
+            inputs_history[2] = np.expand_dims(inputs_history[2][-1], axis=-1)
 
         return MetaTrainingSample(
             inputs=inputs_history,
             initial_states=initial_states,
-            learner_grads=learner_grads
+            learner_grads=learner_grads,
         )
 
     def retrieve_training_sample(
@@ -255,4 +260,3 @@ class MetaPredictLearnerModel(Model, Optimizer):
             return self._retrieve_debug_training_sample(valid_x, valid_y, learner_training_batches)
         else:
             return self._retrieve_no_debug_training_sample(valid_x, valid_y)
-

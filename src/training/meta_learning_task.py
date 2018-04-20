@@ -1,6 +1,5 @@
 import os
 import random
-from logging import Logger
 from typing import Callable, Optional, List, Tuple
 
 import time
@@ -17,6 +16,8 @@ from src.isotropy.lanczos import TopKEigenvaluesBatched
 from src.model.custom_optimizers import CustomAdam
 from src.model.meta_learner.meta_model import MetaLearnerModel
 from src.model.meta_learner.meta_training_sample import MetaTrainingSample
+from src.model.util import get_trainable_params_count
+from src.training.training_configuration import TrainingConfiguration
 from src.utils.testing import gradient_check
 
 
@@ -36,29 +37,21 @@ class MetaLearningTask(object):
             self,
             meta_dataset: MetaLearnerDataset,
             learner_factory: Callable[[], Model],
-            meta_learner_factory: Callable[[Model], MetaLearnerModel],
-            backpropagation_depth: int,
-            backpropagation_padding: int,
+            meta_learner_factory: Callable[[Model, TopKEigenvaluesBatched], MetaLearnerModel],
+            configuration: TrainingConfiguration,
             training_history_path: str,
             meta_learner_weights_path: str,
             best_meta_learner_weights_path: str,
-            logger: Logger,
-            continue_task: bool = False,
-            task_checkpoint_path: Optional[str] = None,
-            debug_mode: bool = False):
+            task_checkpoint_path: Optional[str] = None):
         """
         :param meta_dataset: meta-dataset containing learner-datasets for the task
         :param learner_factory: method that returns instances of Learner Model
         :param meta_learner_factory: method that returns instances of meta-learner Model
-        :param backpropagation_depth: depth of BPTT when training meta-learner
-        :param backpropagation_padding: padding of BPTT (how often to perform BPTT) when training meta-learner
+        :param configuration: TrainingConfiguration
         :param training_history_path: path to output file with training history
         :param meta_learner_weights_path: path to output file with current MetaLearner weights
         :param best_meta_learner_weights_path: path to output file with MetaLearner weights that had best valid. loss
-        :param logger: Logger
-        :param continue_task: whether to continue previously interrupted task
         :param task_checkpoint_path: optional path to file with checkpoint data to save task/continue interrupted task
-        :param debug_mode: debug mode (enables gradient check)
         """
         self.meta_dataset = meta_dataset
 
@@ -72,11 +65,13 @@ class MetaLearningTask(object):
         self.optimizer_weights = None
         self.learner_factory = learner_factory
         self.meta_learner_factory = meta_learner_factory
-        self.debug_mode = debug_mode
 
-        self.logger = logger
+        self.configuration = configuration
+        self.debug_mode = configuration.debug_mode
 
-        if not continue_task or not task_checkpoint_path or not os.path.isfile(task_checkpoint_path):
+        self.logger = configuration.logger
+
+        if not configuration.continue_task or not task_checkpoint_path or not os.path.isfile(task_checkpoint_path):
             self.logger.info('Initializing new MetaLearningTask')
 
             if task_checkpoint_path:
@@ -90,8 +85,9 @@ class MetaLearningTask(object):
 
             self.logger.info('Continuing MetaLearningTask after {} epochs'.format(self.starting_epoch))
 
-        self.backpropagation_depth = backpropagation_depth
-        self.backpropagation_padding = backpropagation_padding
+        self.backpropagation_depth = configuration.backpropagation_depth
+        self.backpropagation_padding = configuration.backpropagation_padding
+        self.random_seed = configuration.random_seed
 
         self.eigenvals_callback = None
 
@@ -119,6 +115,9 @@ class MetaLearningTask(object):
 
         train_batch_x, train_batch_y = learner_dataset.train_set.x, learner_dataset.train_set.y
         valid_batch_x, valid_batch_y = learner_dataset.test_set.x, learner_dataset.test_set.y
+
+        self.eigenvals_callback.X = train_batch_x
+        self.eigenvals_callback.y = train_batch_y
 
         training_samples = []
         batch_generator = learner_dataset.train_set.batch_generator(batch_size=learner_batch_size, randomize=True)
@@ -175,6 +174,9 @@ class MetaLearningTask(object):
         self.meta_learner.reset_states()
         reset_weights(self.learner)
 
+        self.eigenvals_callback.X = train_batch_x
+        self.eigenvals_callback.y = train_batch_y
+
         self.learner.fit_generator(
             generator=learner_dataset.train_set.batch_generator(batch_size=learner_batch_size, randomize=True),
             steps_per_epoch=n_learner_batches,
@@ -182,15 +184,11 @@ class MetaLearningTask(object):
             verbose=0
         )
 
-        # compute shape of minimum at the end of the training
-        self.eigenvals_callback.X = train_batch_x
-        self.eigenvals_callback.y = train_batch_y
-
         eigen_save_path = os.path.join(os.environ['LOG_DIR'],
                                        'eigenvals/epoch_{}/step_{}_top_K_ev.npz'.format(epoch, step))
         if not os.path.exists(os.path.dirname(eigen_save_path)):
             os.makedirs(os.path.dirname(eigen_save_path))
-        self.eigenvals_callback.save(eigen_save_path)
+        self.eigenvals_callback.save(eigen_save_path, with_vectors=False)
 
         # evaluate trained learner on train and valid sets
         meta_evaluation = (self.learner.evaluate(train_batch_x, train_batch_y, verbose=0),
@@ -318,6 +316,7 @@ class MetaLearningTask(object):
 
     def _compile(self, meta_lr, epoch, learner_batch_size):
         K.clear_session()
+
         self.learner = self.learner_factory()
 
         # we need to compile learner before constructing meta_learner, and then set optimizer to meta_learner
@@ -325,7 +324,15 @@ class MetaLearningTask(object):
                              optimizer=SGD(lr=0.0),  # dummy optimizer
                              metrics=['accuracy'])
 
-        self.meta_learner = self.meta_learner_factory(self.learner)
+        self.eigenvals_callback = TopKEigenvaluesBatched(K=4, batch_size=learner_batch_size, logger=self.logger,
+                                                         save_dir="", save_eigenv=1)
+        self.eigenvals_callback.model = self.learner
+        self.eigenvals_callback.compile()
+
+        if epoch == 0:
+            self.eigenvals_callback.save_param_shapes(os.path.join(os.environ['LOG_DIR'], "top_K_ev_mapping.pkl"))
+
+        self.meta_learner = self.meta_learner_factory(self.learner, self.eigenvals_callback)
 
         self.meta_learner.predict_model.compile(loss='mae',  # we don't use loss here anyway
                                                 optimizer=SGD(lr=0.0),  # dummy optimizer
@@ -341,16 +348,14 @@ class MetaLearningTask(object):
         # initialize some additional tensors used for meta-training
         self.meta_learner.compile()
 
+        if epoch == 0:
+            n_params = get_trainable_params_count(self.meta_learner.train_model)
+
+            self.logger.info("Using Meta-Learner with {} parameters".format(n_params))
+            self.meta_learner.train_model.summary()
+
         if epoch > 0 and os.path.isfile(self.meta_learner_weights_path):
             self.meta_learner.load_weights(self.meta_learner_weights_path)
-
-        self.eigenvals_callback = TopKEigenvaluesBatched(K=1, batch_size=learner_batch_size, logger=self.logger,
-                                                         save_dir="", save_eigenv=1)
-        self.eigenvals_callback.model = self.learner
-        self.eigenvals_callback.compile()
-
-        if epoch == 0:
-            self.eigenvals_callback.save_param_shapes(os.path.join(os.environ['LOG_DIR'], "top_K_ev_mapping.pkl"))
 
     def meta_train(
             self,

@@ -1,9 +1,9 @@
 import argh
 import os
+from src.training.training_configuration import read_configuration
 
 from src.datasets.cifar import load_cifar100
 from src.training.train import run_meta_learning
-from src.training.training_configuration import read_configuration
 
 
 def train(clear_logs: bool = False):

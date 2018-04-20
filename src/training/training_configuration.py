@@ -30,7 +30,9 @@ class TrainingConfiguration(object):
             meta_test_class_ratio: float,
             initial_learner_lr: float,
             hidden_state_size: int,
-            n_meta_valid_steps: int):
+            n_meta_valid_steps: int,
+            random_seed: int,
+            with_hessian_features: int):
         self.continue_task = continue_task
         self.debug_mode = debug_mode
         self.lr_schedule = lr_schedule
@@ -53,6 +55,8 @@ class TrainingConfiguration(object):
         self.n_meta_epochs = n_meta_epochs
         self.meta_early_stopping = meta_early_stopping
         self.hidden_state_size = hidden_state_size
+        self.random_seed = random_seed
+        self.with_hessian_features = with_hessian_features
 
     @property
     def meta_dataset_path(self):
@@ -63,6 +67,7 @@ class TrainingConfiguration(object):
     def log_summary(self):
         params = {
             'continue_task': self.continue_task,
+            'with_hessian_features': self.with_hessian_features,
             'debug_mode': self.debug_mode,
             'backpropagation_depth': self.backpropagation_depth,
             'backpropagation_padding': self.backpropagation_padding,
@@ -82,7 +87,8 @@ class TrainingConfiguration(object):
             'n_meta_valid_steps': self.n_meta_valid_steps,
             'n_meta_epochs': self.n_meta_epochs,
             'meta_early_stopping': self.meta_early_stopping,
-            'hidden_state_size': self.hidden_state_size
+            'hidden_state_size': self.hidden_state_size,
+            'random_seed': self.random_seed
         }
         msg = '\n'.join("{}: {}".format(k, v) for k, v in sorted(params.items(), key=lambda x: x[0]))
         self.logger.info("TRAINING CONFIGURATION:\n" + msg)
@@ -118,4 +124,6 @@ def read_configuration(path: str) -> TrainingConfiguration:
         meta_test_class_ratio=conf['meta_test_class_ratio'],
         initial_learner_lr=conf['initial_learner_lr'],
         hidden_state_size=conf['hidden_state_size'],
-        n_meta_valid_steps=conf['n_meta_valid_steps'])
+        n_meta_valid_steps=conf['n_meta_valid_steps'],
+        random_seed=conf['random_seed'],
+        with_hessian_features=conf['with_hessian_features'])
