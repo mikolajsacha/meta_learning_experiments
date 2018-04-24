@@ -184,11 +184,17 @@ class MetaLearningTask(object):
             verbose=0
         )
 
+        # after each meta-valid step, save Hessian eigenvalues and some training statistics
         eigen_save_path = os.path.join(os.environ['LOG_DIR'],
                                        'eigenvals/epoch_{}/step_{}_top_K_ev.npz'.format(epoch, step))
         if not os.path.exists(os.path.dirname(eigen_save_path)):
             os.makedirs(os.path.dirname(eigen_save_path))
         self.eigenvals_callback.save(eigen_save_path, with_vectors=False)
+
+        stats_path = os.path.join(os.environ['LOG_DIR'], 'stats/epoch_{}/step_{}_stats.npz'.format(epoch, step))
+        if not os.path.exists(os.path.dirname(stats_path)):
+            os.makedirs(os.path.dirname(stats_path))
+        self.meta_learner.predict_model.save_statistics(stats_path)
 
         # evaluate trained learner on train and valid sets
         meta_evaluation = (self.learner.evaluate(train_batch_x, train_batch_y, verbose=0),
@@ -394,13 +400,12 @@ class MetaLearningTask(object):
                 learner_batch_size=learner_batch_size,
                 epoch_number=-1)
 
-        for i in tqdm(range(n_meta_epochs), desc='Running Meta-Training'):
+        for i in tqdm(range(n_meta_epochs - self.starting_epoch), desc='Running Meta-Training'):
             epoch = self.starting_epoch + i
             epoch_start = time.time()
 
             # reset backend session each epoch to avoid memory leaks etc
-            if epoch > 0:
-                self._compile(lr, epoch, learner_batch_size)
+            self._compile(lr, epoch, learner_batch_size)
 
             if best_loss is None:
                 self.logger.info("Starting meta-epoch {:d}".format(epoch + 1))

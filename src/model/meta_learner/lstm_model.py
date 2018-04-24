@@ -148,8 +148,12 @@ def lstm_predict_meta_learner(learner: Model, eigenvals_callback: TopKEigenvalue
 
     output = Subtract(name='output')([left, right])
 
+    # can be measured for analysis
+    intermediate_outputs = [forget_factor, lr_factor]
+
     return MetaPredictLearnerModel(learner=learner, configuration=configuration, train_mode=True, inputs=inputs,
-                                   input_tensors=input_tensors, states_outputs=states_outputs, outputs=output)
+                                   input_tensors=input_tensors, states_outputs=states_outputs, outputs=output,
+                                   intermediate_outputs=intermediate_outputs)
 
 
 def inverse_sigmoid(x: float):

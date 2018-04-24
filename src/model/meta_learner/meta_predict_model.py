@@ -18,7 +18,8 @@ class MetaPredictLearnerModel(Model, Optimizer):
     """
 
     def __init__(self, learner: Model, configuration: TrainingConfiguration, train_mode: bool,
-                 states_outputs: List[tf.Tensor], input_tensors: List[tf.Tensor], inputs, outputs, name=None):
+                 states_outputs: List[tf.Tensor], input_tensors: List[tf.Tensor],
+                 intermediate_outputs: List[tf.Tensor], inputs, outputs, name=None):
         Model.__init__(self, inputs, outputs, name)
         self.debug_mode = configuration.debug_mode
         self.learner = learner
@@ -26,6 +27,10 @@ class MetaPredictLearnerModel(Model, Optimizer):
                                             K.gradients(self.learner.total_loss,
                                                         self.learner._collected_trainable_weights)])
         self.learner_inputs = get_input_tensors(self.learner)
+        self.intermediate_outputs = intermediate_outputs
+
+        # inspect how some 'random' parameters of learner learn
+        self.inspect_parameters = [500, 1000, 2000, 3000, 4000, 5000, 6000, 7000]
 
         self.output_size = get_trainable_params_count(self.learner)
         self.input_tensors = input_tensors
@@ -43,6 +48,8 @@ class MetaPredictLearnerModel(Model, Optimizer):
         self.initial_states = []
         self.states_history = []
         self.inputs_history = []
+        self.selected_inter_outputs = None
+        self.intermediate_outputs_history = []
         self.learner_weights_history = []
         self.current_output = tf.Variable(tf.zeros(shape=(1, self.output_size)), name='current_meta_output')
 
@@ -69,6 +76,10 @@ class MetaPredictLearnerModel(Model, Optimizer):
 
             for state_hist, current_state in zip(self.states_history, self.state_tensors):
                 updates.append(update_hist(state_hist, current_state))
+
+            for inter_output_hist, current_inter_output in zip(self.intermediate_outputs_history,
+                                                               self.selected_inter_outputs):
+                updates.append(update_hist(inter_output_hist, current_inter_output))
 
             updates.append(tf.assign(self.current_output, self.outputs, validate_shape=False))
 
@@ -119,6 +130,11 @@ class MetaPredictLearnerModel(Model, Optimizer):
 
         self.inputs_history = [tf.Variable(t, name='inputs_history_{}'.format(i))
                                for i, t in enumerate(self._init_history_tensors(self.input_tensors))]
+
+        self.selected_inter_outputs = [tf.gather(t, self.inspect_parameters) for t in self.intermediate_outputs]
+
+        self.intermediate_outputs_history = [tf.Variable(t, name='intermediate_outputs_history_{}'.format(i)) for i, t
+                                             in enumerate(self._init_history_tensors(self.selected_inter_outputs))]
 
         if self.debug_mode:
             self.learner_weights_history = [tf.Variable(t, name='learner_weights_history_'.format(i)) for i, t in
@@ -260,3 +276,15 @@ class MetaPredictLearnerModel(Model, Optimizer):
             return self._retrieve_debug_training_sample(valid_x, valid_y, learner_training_batches)
         else:
             return self._retrieve_no_debug_training_sample(valid_x, valid_y)
+
+    def retrieve_statistics(self) -> dict:
+        fetches = self.intermediate_outputs_history
+        evaluated = K.get_session().run(fetches)
+        inter_outputs_history = evaluated
+
+        stats = {'forget_rate_history': inter_outputs_history[0], 'learning_rate_history': inter_outputs_history[1]}
+        return stats
+
+    def save_statistics(self, path):
+        stats = self.retrieve_statistics()
+        np.savez(path, **stats)
