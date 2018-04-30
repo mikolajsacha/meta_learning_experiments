@@ -28,11 +28,13 @@ class MetaPredictLearnerModel(Model, Optimizer):
                                                         self.learner._collected_trainable_weights)])
         self.learner_inputs = get_input_tensors(self.learner)
         self.intermediate_outputs = intermediate_outputs
+        self.output_size = get_trainable_params_count(self.learner)
 
         # inspect how some 'random' parameters of learner learn
-        self.inspect_parameters = [500, 1000, 2000, 3000, 4000, 5000, 6000, 7000]
+        n_inspect = 20
+        self.inspect_parameters = np.linspace(1, self.output_size, endpoint=False,
+                                              dtype=int, num=n_inspect)
 
-        self.output_size = get_trainable_params_count(self.learner)
         self.input_tensors = input_tensors
         self.states_outputs = states_outputs
 

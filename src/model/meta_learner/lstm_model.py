@@ -27,9 +27,10 @@ def get_common_lstm_model_layers(hidden_state_size: int, lr_bias: float, f_bias:
         Lambda(lambda x: gradient_preprocessing_left(x), name='preprocess_l'),
         Lambda(lambda x: gradient_preprocessing_right(x), name='preprocess_r'),
         Concatenate(axis=-1, name='concat_lstm_inputs'),
+        LSTM(hidden_state_size, stateful=True, return_state=True, return_sequences=True,
+             name='lstm_1', activation='relu'),
         LSTM(hidden_state_size, stateful=True, return_state=True,
-             name='lstm', activation='relu'),
-        Dense(hidden_state_size, name='hidden_dense', activation='relu'),
+             name='lstm_2', activation='relu'),
         Dense(1, name='learning_rate_dense', activation='sigmoid',
               kernel_initializer=RandomNormal(mean=0.0, stddev=initializer_std),
               bias_initializer=Constant(value=lr_bias)),
@@ -39,8 +40,18 @@ def get_common_lstm_model_layers(hidden_state_size: int, lr_bias: float, f_bias:
     ]
 
 
-def lstm_train_meta_learner(with_hessian_features: bool, backprop_depth: int,
-                            batch_size: int, common_layers: List[Layer]) -> Model:
+def preprocess_inputs(inps, common_layers):
+    preprocessed = []
+    for inp in inps:
+        preprocessed_l = common_layers[0](inp)
+        preprocessed_r = common_layers[1](inp)
+        preprocessed.append(preprocessed_l)
+        preprocessed.append(preprocessed_r)
+    return preprocessed
+
+
+def lstm_train_meta_learner(with_hessian_eigenvalue_features: bool, with_hessian_eigenvector_features: bool,
+                            backprop_depth: int, batch_size: int, common_layers: List[Layer]) -> Model:
     """
     :return: Keras Model for Meta-Learner used during training of Meta-Learner using BPTT
     """
@@ -51,30 +62,27 @@ def lstm_train_meta_learner(with_hessian_features: bool, backprop_depth: int,
 
     inputs = [grads_input, loss_input, params_input]
 
-    preprocessed_grads_l = common_layers[0](grads_input)
-    preprocessed_grads_r = common_layers[1](grads_input)
-    preprocessed_loss_l = common_layers[0](loss_input)
-    preprocessed_loss_r = common_layers[1](loss_input)
+    lstm_inputs = preprocess_inputs([grads_input, loss_input], common_layers)
 
-    if with_hessian_features:
+    if with_hessian_eigenvector_features or with_hessian_eigenvalue_features:
         eigenval_input = Input(batch_shape=(batch_size, backprop_depth, 1), name='hessian_eigenval_input_train')
-        preprocessed_eigen_l = common_layers[0](eigenval_input)
-        preprocessed_eigen_r = common_layers[1](eigenval_input)
-        full_lstm_input = common_layers[2]([preprocessed_grads_l, preprocessed_grads_r,
-                                            preprocessed_loss_l, preprocessed_loss_r,
-                                            preprocessed_eigen_l, preprocessed_eigen_r])
+        lstm_inputs += preprocess_inputs([eigenval_input], common_layers)
         inputs.append(eigenval_input)
-    else:
-        full_lstm_input = common_layers[2]([preprocessed_grads_l, preprocessed_grads_r,
-                                            preprocessed_loss_l, preprocessed_loss_r])
 
+    if with_hessian_eigenvector_features:
+        eigenvec_input = Input(batch_shape=(batch_size, backprop_depth, 1), name='hessian_eigenvec_input_train')
+        inputs.append(eigenvec_input)
+        lstm_inputs += preprocess_inputs([eigenvec_input], common_layers)
+
+    full_lstm_input = common_layers[2](lstm_inputs)
     lstm_full_output = common_layers[3](full_lstm_input)
     lstm_output = lstm_full_output[0]
 
-    dense_output = common_layers[4](lstm_output)
+    lstm_full_output = common_layers[4](lstm_output)
+    lstm_output = lstm_full_output[0]
 
-    lr_factor = common_layers[5](dense_output)
-    forget_factor = common_layers[6](dense_output)
+    lr_factor = common_layers[5](lstm_output)
+    forget_factor = common_layers[6](lstm_output)
 
     final_grad = Lambda(lambda x: x[:, -1, :], name='final_grad_input')(grads_input)
 
@@ -108,38 +116,46 @@ def lstm_predict_meta_learner(learner: Model, eigenvals_callback: TopKEigenvalue
     input_tensors = [grads_tensor, loss_tensor, params_tensor]
     inputs = [grads_input, loss_input, params_input]
 
-    preprocessed_grads_l = common_layers[0](grads_input)
-    preprocessed_grads_r = common_layers[1](grads_input)
-    preprocessed_loss_l = common_layers[0](loss_input)
-    preprocessed_loss_r = common_layers[1](loss_input)
+    lstm_inputs = preprocess_inputs([grads_input, loss_input], common_layers)
 
-    if configuration.with_hessian_features:
+    if configuration.with_hessian_eigenvector_features:
+        eigenval_tensor = tf.fill(value=eigenvals_callback.spectral_norm_tensor_2, dims=[batch_size, 1, 1])
+        eigenvec_tensor = tf.reshape(eigenvals_callback.eigenvector_tensor, shape=[batch_size, 1, 1])
+
+        eigenval_input = Input(tensor=eigenval_tensor, batch_shape=(batch_size, 1, 1),
+                               name='hessian_eigenval_input_predict')
+        eigenvec_input = Input(tensor=eigenvec_tensor, batch_shape=(batch_size, 1, 1),
+                               name='hessian_eigenvec_input_predict')
+
+        input_tensors.append(eigenval_tensor)
+        input_tensors.append(eigenvec_tensor)
+
+        inputs.append(eigenval_input)
+        inputs.append(eigenvec_input)
+
+        lstm_inputs += preprocess_inputs([eigenval_input, eigenvec_input], common_layers)
+
+    elif configuration.with_hessian_eigenvalue_features:
         eigenval_tensor = tf.fill(value=eigenvals_callback.spectral_norm_tensor, dims=[batch_size, 1, 1])
         eigenval_input = Input(tensor=eigenval_tensor, batch_shape=(batch_size, 1, 1),
                                name='hessian_eigenval_input_predict')
 
         input_tensors.append(eigenval_tensor)
         inputs.append(eigenval_input)
+        lstm_inputs += preprocess_inputs([eigenval_input], common_layers)
 
-        preprocessed_eigen_l = common_layers[0](eigenval_input)
-        preprocessed_eigen_r = common_layers[1](eigenval_input)
-
-        full_lstm_input = common_layers[2]([preprocessed_grads_l, preprocessed_grads_r,
-                                            preprocessed_loss_l, preprocessed_loss_r,
-                                            preprocessed_eigen_l, preprocessed_eigen_r])
-    else:
-        full_lstm_input = common_layers[2]([preprocessed_grads_l, preprocessed_grads_r,
-                                            preprocessed_loss_l, preprocessed_loss_r])
-
+    full_lstm_input = common_layers[2](lstm_inputs)
     lstm_full_output = common_layers[3](full_lstm_input)
     lstm_output = lstm_full_output[0]
     states_outputs = lstm_full_output[1:]
 
-    dense_output = common_layers[4](lstm_output)
+    lstm_full_output = common_layers[4](lstm_output)
+    lstm_output = lstm_full_output[0]
+    states_outputs += lstm_full_output[1:]
 
-    lr_factor = common_layers[5](dense_output)
+    lr_factor = common_layers[5](lstm_output)
     forget_factor =\
-        common_layers[6](dense_output)
+        common_layers[6](lstm_output)
 
     flat_grads = Flatten(name='flatten_grads_input')(grads_input)
 
@@ -173,7 +189,8 @@ def lstm_meta_learner(learner: Model,
     common_layers = get_common_lstm_model_layers(configuration.hidden_state_size, lr_bias, f_bias, 0.001)
     meta_batch_size = get_trainable_params_count(learner)
 
-    train_meta_learner = lstm_train_meta_learner(configuration.with_hessian_features,
+    train_meta_learner = lstm_train_meta_learner(configuration.with_hessian_eigenvalue_features,
+                                                 configuration.with_hessian_eigenvector_features,
                                                  configuration.backpropagation_depth, meta_batch_size, common_layers)
     predict_meta_learner = lstm_predict_meta_learner(learner, eigenvals_callback, configuration,
                                                      meta_batch_size, common_layers)

@@ -55,6 +55,8 @@ class TopKEigenvaluesBatched(Callback):
         self.parameter_names = None
         self.parameter_shapes = None
         self.spectral_norm_tensor = None
+        self.spectral_norm_tensor_2 = None
+        self.eigenvector_tensor = None
 
     def _construct_laszlo_operator_batched(self, dtype=np.float32):
         L = self.get_my_model().total_loss
@@ -109,19 +111,25 @@ class TopKEigenvaluesBatched(Callback):
             self.logger.debug("Compiling TopKEignevaluesBattched Callback")
         _op = self._construct_laszlo_operator_batched()
         self._lanczos_tensor = {self.K: lanczos_bidiag(_op, self.K)}
-        if self.K != 1:
-            self._lanczos_tensor[1] = lanczos_bidiag(_op, 1)
 
         self.parameters = self.get_my_model().trainable_weights
         self.parameter_names = [p.name for p in self.get_my_model().trainable_weights]
         self.parameter_shapes = [K.int_shape(p) for p in self.get_my_model().trainable_weights]
 
-        def get_spectral_norm():
+        def get_eigenvalue_feature():
             # hessian is symmetrical, so spectral norm is equal to the largest absolute value of eigenvalues
-            biggest_eigen = self._compute_top(k=1, with_vectors=False)
-            return np.float32(biggest_eigen[0])
+            biggest_eigen = self._compute_top(k=self.K, with_vectors=False)
+            return np.float32(np.mean(biggest_eigen[:-1]))
 
-        self.spectral_norm_tensor = tf.py_func(get_spectral_norm, [], tf.float32)
+        def get_eigenvector_features():
+            biggest_eigenval, biggest_eigenvec = self._compute_top(k=self.K, with_vectors=False)
+            return [np.float32(np.mean(biggest_eigenval[:-1])), biggest_eigenvec[:, 0]]
+
+        self.spectral_norm_tensor = tf.py_func(get_eigenvalue_feature, [], tf.float32)
+
+        eigenvector_tensors = tf.py_func(get_eigenvector_features, [], [tf.float32, tf.float32])
+        self.spectral_norm_tensor_2 = eigenvector_tensors[0]
+        self.eigenvector_tensor = eigenvector_tensors[1]
 
     def set_my_model(self, model):
         model.summary()
