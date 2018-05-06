@@ -47,6 +47,7 @@ class MetaPredictLearnerModel(Model, Optimizer):
         # to save memory, I use tensors with constant shape in circular way, marking current index
         self.current_backprop_index = tf.Variable(0, dtype=tf.int32)
 
+        self.last_inputs = None
         self.initial_states = []
         self.states_history = []
         self.inputs_history = []
@@ -62,9 +63,6 @@ class MetaPredictLearnerModel(Model, Optimizer):
         :param params: list of tensors of parameters (each tensor = parameters for a single layer)
         :return: list of tensors with updates for each layer
         """
-        if len(self.state_tensors) == 0:
-            raise ValueError("Model is probably not compiled (len(self.state_tensors) == 0)")
-
         # here we assume that our meta-learner inputs are Learner tensors
         updates = []
 
@@ -201,9 +199,13 @@ class MetaPredictLearnerModel(Model, Optimizer):
 
         # reshape inputs so they fit our training model
         inputs_history[0] = np.expand_dims(np.transpose(inputs_history[0]), axis=-1)
-        inputs_history[1] = np.expand_dims(np.transpose(inputs_history[1]), axis=-1)
+
+        # loss and eigenvalues need to be repeated for all parameters
+        inputs_history[1] = np.reshape(inputs_history[1], newshape=(1, len(inputs_history[1]), 1))
+        inputs_history[1] = np.repeat(inputs_history[1], axis=0, repeats=self.output_size)
         if len(inputs_history) > 3:
-            inputs_history[3] = np.expand_dims(np.transpose(inputs_history[3]), axis=-1)
+            inputs_history[3] = np.reshape(inputs_history[3], newshape=(1, len(inputs_history[3]), 1))
+            inputs_history[3] = np.repeat(inputs_history[3], axis=0, repeats=self.output_size)
 
         # we need only final value of params_input for BPTT
         if self.backprop_depth != 1:
@@ -252,9 +254,13 @@ class MetaPredictLearnerModel(Model, Optimizer):
 
         # reshape inputs so they fit our training model
         inputs_history[0] = np.expand_dims(np.transpose(inputs_history[0]), axis=-1)
-        inputs_history[1] = np.expand_dims(np.transpose(inputs_history[1]), axis=-1)
+
+        # loss and eigenvalues need to be repeated for all parameters
+        inputs_history[1] = np.reshape(inputs_history[1], newshape=(1, len(inputs_history[1]), 1))
+        inputs_history[1] = np.repeat(inputs_history[1], axis=0, repeats=self.output_size)
         if len(inputs_history) > 3:
-            inputs_history[3] = np.expand_dims(np.transpose(inputs_history[3]), axis=-1)
+            inputs_history[3] = np.reshape(inputs_history[3], newshape=(1, len(inputs_history[3]), 1))
+            inputs_history[3] = np.repeat(inputs_history[3], axis=0, repeats=self.output_size)
 
         # we need only final value of params_input for BPTT
         if self.backprop_depth == 1:
@@ -280,13 +286,20 @@ class MetaPredictLearnerModel(Model, Optimizer):
             return self._retrieve_no_debug_training_sample(valid_x, valid_y)
 
     def retrieve_statistics(self) -> dict:
-        fetches = self.intermediate_outputs_history
-        evaluated = K.get_session().run(fetches)
-        inter_outputs_history = evaluated
+        stats = {}
 
-        stats = {'forget_rate_history': inter_outputs_history[0], 'learning_rate_history': inter_outputs_history[1]}
+        fetches = self.intermediate_outputs_history
+        inter_outputs_history = K.get_session().run(fetches)
+
+        if len(inter_outputs_history) > 0:
+            stats['forget_rate_history'] = inter_outputs_history[0]
+        if len(inter_outputs_history) > 1:
+            stats['learning_rate_history'] = inter_outputs_history[1]
+
         return stats
 
     def save_statistics(self, path):
         stats = self.retrieve_statistics()
         np.savez(path, **stats)
+
+

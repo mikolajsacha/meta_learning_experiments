@@ -5,6 +5,7 @@ from typing import Callable, Optional, List, Tuple
 import time
 
 from itertools import islice
+
 from keras.optimizers import SGD
 from tqdm import tqdm
 
@@ -68,6 +69,7 @@ class MetaLearningTask(object):
             os.makedirs(self.meta_learner_weights_history_dir)
 
         self.learner = None
+
         self.meta_learner = None
         self.optimizer_weights = None
         self.learner_factory = learner_factory
@@ -122,7 +124,7 @@ class MetaLearningTask(object):
         learner_dataset = self.meta_dataset.meta_test_set[learner_ind]
 
         self.meta_learner.reset_states()
-        reset_weights(self.learner)
+        self.learner.load_weights(os.path.join(os.environ['CONF_DIR'], 'initial_learner_weights.h5'))
 
         train_batch_x, train_batch_y = learner_dataset.train_set.x, learner_dataset.train_set.y
         valid_batch_x, valid_batch_y = learner_dataset.test_set.x, learner_dataset.test_set.y
@@ -183,7 +185,7 @@ class MetaLearningTask(object):
         valid_batch_x, valid_batch_y = learner_dataset.test_set.x, learner_dataset.test_set.y
 
         self.meta_learner.reset_states()
-        reset_weights(self.learner)
+        self.learner.load_weights(os.path.join(os.environ['CONF_DIR'], 'initial_learner_weights.h5'))
 
         self.eigenvals_callback.X = train_batch_x
         self.eigenvals_callback.y = train_batch_y

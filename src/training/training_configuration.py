@@ -11,6 +11,7 @@ class TrainingConfiguration(object):
             self,
             continue_task: bool,
             debug_mode: bool,
+            constant_lr_model: bool,
             dataset_key: str,
             logger: logging.Logger,
             lr_schedule: List[Tuple[int, float]],
@@ -59,6 +60,7 @@ class TrainingConfiguration(object):
         self.random_seed = random_seed
         self.with_hessian_eigenvalue_features = with_hessian_eigenvalue_features
         self.with_hessian_eigenvector_features = with_hessian_eigenvector_features
+        self.constant_lr_model = constant_lr_model
 
     @property
     def meta_dataset_path(self):
@@ -69,6 +71,7 @@ class TrainingConfiguration(object):
     def log_summary(self):
         params = {
             'continue_task': self.continue_task,
+            'constant_lr_model': self.constant_lr_model,
             'with_hessian_eigenvalue_features': self.with_hessian_eigenvalue_features,
             'with_hessian_eigenvector_features': self.with_hessian_eigenvector_features,
             'debug_mode': self.debug_mode,
@@ -129,5 +132,6 @@ def read_configuration(path: str) -> TrainingConfiguration:
         hidden_state_size=conf['hidden_state_size'],
         n_meta_valid_steps=conf['n_meta_valid_steps'],
         random_seed=conf['random_seed'],
+        constant_lr_model=conf['constant_lr_model'],
         with_hessian_eigenvalue_features=conf['with_hessian_eigenvalue_features'],
         with_hessian_eigenvector_features=conf['with_hessian_eigenvector_features'])
