@@ -206,6 +206,8 @@ class MetaPredictLearnerModel(Model, Optimizer):
         if len(inputs_history) > 3:
             inputs_history[3] = np.reshape(inputs_history[3], newshape=(1, len(inputs_history[3]), 1))
             inputs_history[3] = np.repeat(inputs_history[3], axis=0, repeats=self.output_size)
+        if len(inputs_history) > 4:
+            inputs_history[4] = np.expand_dims(np.transpose(inputs_history[4]), axis=-1)
 
         # we need only final value of params_input for BPTT
         if self.backprop_depth != 1:
@@ -261,6 +263,8 @@ class MetaPredictLearnerModel(Model, Optimizer):
         if len(inputs_history) > 3:
             inputs_history[3] = np.reshape(inputs_history[3], newshape=(1, len(inputs_history[3]), 1))
             inputs_history[3] = np.repeat(inputs_history[3], axis=0, repeats=self.output_size)
+        if len(inputs_history) > 4:
+            inputs_history[4] = np.expand_dims(np.transpose(inputs_history[4]), axis=-1)
 
         # we need only final value of params_input for BPTT
         if self.backprop_depth == 1:
@@ -291,9 +295,10 @@ class MetaPredictLearnerModel(Model, Optimizer):
         fetches = self.intermediate_outputs_history
         inter_outputs_history = K.get_session().run(fetches)
 
-        if len(inter_outputs_history) > 0:
+        if len(inter_outputs_history) == 1:
+            stats['learning_rate_history'] = inter_outputs_history[0]
+        elif len(inter_outputs_history) > 1:
             stats['forget_rate_history'] = inter_outputs_history[0]
-        if len(inter_outputs_history) > 1:
             stats['learning_rate_history'] = inter_outputs_history[1]
 
         return stats

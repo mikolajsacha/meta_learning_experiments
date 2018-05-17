@@ -118,12 +118,12 @@ class TopKEigenvaluesBatched(Callback):
 
         def get_eigenvalue_feature():
             # hessian is symmetrical, so spectral norm is equal to the largest absolute value of eigenvalues
-            biggest_eigen = self._compute_top(k=self.K, with_vectors=False)
+            biggest_eigen = self.compute_top(k=self.K, with_vectors=False)
             return np.float32(np.mean(biggest_eigen[:-1]))
 
         def get_eigenvector_features():
-            biggest_eigenval, biggest_eigenvec = self._compute_top(k=self.K, with_vectors=False)
-            return [np.float32(np.mean(biggest_eigenval[:-1])), biggest_eigenvec[:, 0]]
+            biggest_eigenval, biggest_eigenvec = self.compute_top(k=self.K, with_vectors=True)
+            return [np.float32(np.mean(biggest_eigenval[:-1])), np.float32(biggest_eigenvec[:, 0])]
 
         self.spectral_norm_tensor = tf.py_func(get_eigenvalue_feature, [], tf.float32)
 
@@ -142,7 +142,7 @@ class TopKEigenvaluesBatched(Callback):
         else:
             return self.model
 
-    def _compute_top(self, k, with_vectors=True):
+    def compute_top(self, k, with_vectors=True):
         if self.X is None or self.y is None:
             raise ValueError("Set self.X and self.y first")
         if self._lanczos_tensor is None:
@@ -183,15 +183,15 @@ class TopKEigenvaluesBatched(Callback):
             return eigenvalues, eigenvectors
         return eigenvalues
 
-    def _compute_top_K(self, with_vectors=True):
-        return self._compute_top(self.K, with_vectors)
+    def compute_top_K(self, with_vectors=True):
+        return self.compute_top(self.K, with_vectors)
 
     def save(self, path, E=None, Ev=None, with_vectors=True):
         if E is None or Ev is None:
             if with_vectors:
-                E, Ev = self._compute_top_K(with_vectors=True)
+                E, Ev = self.compute_top_K(with_vectors=True)
             else:
-                E = self._compute_top_K(with_vectors=False)
+                E = self.compute_top_K(with_vectors=False)
         if self.logger is not None:
             self.logger.debug("Saving eigenvectors")
         if with_vectors:
@@ -203,7 +203,7 @@ class TopKEigenvaluesBatched(Callback):
         pickle.dump({"shapes": self.parameter_shapes, "names": self.parameter_names}, open(path, 'wb'))
 
     def on_epoch_begin(self, epoch, logs):
-        E, Ev = self._compute_top_K()
+        E, Ev = self.compute_top_K()
         logs['top_K_e'] = E
         if self.save_eigenv > 0:
             if epoch % self.save_eigenv == 0:
