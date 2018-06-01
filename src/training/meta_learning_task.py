@@ -347,7 +347,9 @@ class MetaLearningTask(object):
                              optimizer=SGD(lr=0.0),  # dummy optimizer
                              metrics=['accuracy'])
 
-        self.eigenvals_callback = TopKEigenvaluesBatched(K=4, batch_size=learner_batch_size, logger=self.logger,
+        eigenval_features = self.configuration.hessian_eigenvalue_features
+        self.eigenvals_callback = TopKEigenvaluesBatched(K=max(eigenval_features, 1),
+                                                         batch_size=learner_batch_size, logger=self.logger,
                                                          save_dir="", save_eigenv=1)
         self.eigenvals_callback.model = self.learner
         self.eigenvals_callback.compile()

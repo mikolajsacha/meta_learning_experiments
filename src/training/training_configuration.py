@@ -33,7 +33,7 @@ class TrainingConfiguration(object):
             hidden_state_size: int,
             n_meta_valid_steps: int,
             random_seed: int,
-            with_hessian_eigenvalue_features: int,
+            hessian_eigenvalue_features: int,
             with_hessian_eigenvector_features: int):
         self.continue_task = continue_task
         self.debug_mode = debug_mode
@@ -58,7 +58,7 @@ class TrainingConfiguration(object):
         self.meta_early_stopping = meta_early_stopping
         self.hidden_state_size = hidden_state_size
         self.random_seed = random_seed
-        self.with_hessian_eigenvalue_features = with_hessian_eigenvalue_features
+        self.hessian_eigenvalue_features = hessian_eigenvalue_features
         self.with_hessian_eigenvector_features = with_hessian_eigenvector_features
         self.constant_lr_model = constant_lr_model
 
@@ -72,7 +72,7 @@ class TrainingConfiguration(object):
         params = {
             'continue_task': self.continue_task,
             'constant_lr_model': self.constant_lr_model,
-            'with_hessian_eigenvalue_features': self.with_hessian_eigenvalue_features,
+            'hessian_eigenvalue_features': self.hessian_eigenvalue_features,
             'with_hessian_eigenvector_features': self.with_hessian_eigenvector_features,
             'debug_mode': self.debug_mode,
             'backpropagation_depth': self.backpropagation_depth,
@@ -133,5 +133,5 @@ def read_configuration(path: str) -> TrainingConfiguration:
         n_meta_valid_steps=conf['n_meta_valid_steps'],
         random_seed=conf['random_seed'],
         constant_lr_model=conf['constant_lr_model'],
-        with_hessian_eigenvalue_features=conf['with_hessian_eigenvalue_features'],
+        hessian_eigenvalue_features=conf['hessian_eigenvalue_features'],
         with_hessian_eigenvector_features=conf['with_hessian_eigenvector_features'])

@@ -29,6 +29,7 @@ class MetaPredictLearnerModel(Model, Optimizer):
         self.learner_inputs = get_input_tensors(self.learner)
         self.intermediate_outputs = intermediate_outputs
         self.output_size = get_trainable_params_count(self.learner)
+        self.hessian_eigenvals = configuration.hessian_eigenvalue_features
 
         # inspect how some 'random' parameters of learner learn
         n_inspect = 20
@@ -204,7 +205,8 @@ class MetaPredictLearnerModel(Model, Optimizer):
         inputs_history[1] = np.reshape(inputs_history[1], newshape=(1, len(inputs_history[1]), 1))
         inputs_history[1] = np.repeat(inputs_history[1], axis=0, repeats=self.output_size)
         if len(inputs_history) > 3:
-            inputs_history[3] = np.reshape(inputs_history[3], newshape=(1, len(inputs_history[3]), 1))
+            inputs_history[3] = np.reshape(inputs_history[3],
+                                           newshape=(1, len(inputs_history[3]), self.hessian_eigenvals))
             inputs_history[3] = np.repeat(inputs_history[3], axis=0, repeats=self.output_size)
         if len(inputs_history) > 4:
             inputs_history[4] = np.expand_dims(np.transpose(inputs_history[4]), axis=-1)
@@ -261,7 +263,8 @@ class MetaPredictLearnerModel(Model, Optimizer):
         inputs_history[1] = np.reshape(inputs_history[1], newshape=(1, len(inputs_history[1]), 1))
         inputs_history[1] = np.repeat(inputs_history[1], axis=0, repeats=self.output_size)
         if len(inputs_history) > 3:
-            inputs_history[3] = np.reshape(inputs_history[3], newshape=(1, len(inputs_history[3]), 1))
+            inputs_history[3] = np.reshape(inputs_history[3],
+                                           newshape=(1, len(inputs_history[3]), self.hessian_eigenvals))
             inputs_history[3] = np.repeat(inputs_history[3], axis=0, repeats=self.output_size)
         if len(inputs_history) > 4:
             inputs_history[4] = np.expand_dims(np.transpose(inputs_history[4]), axis=-1)

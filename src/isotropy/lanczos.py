@@ -117,13 +117,12 @@ class TopKEigenvaluesBatched(Callback):
         self.parameter_shapes = [K.int_shape(p) for p in self.get_my_model().trainable_weights]
 
         def get_eigenvalue_feature():
-            # hessian is symmetrical, so spectral norm is equal to the largest absolute value of eigenvalues
-            biggest_eigen = self.compute_top(k=self.K, with_vectors=False)
-            return np.float32(np.mean(biggest_eigen[:-1]))
+            biggest_eigenval = self.compute_top(k=self.K, with_vectors=False)
+            return np.float32(biggest_eigenval)
 
         def get_eigenvector_features():
             biggest_eigenval, biggest_eigenvec = self.compute_top(k=self.K, with_vectors=True)
-            return [np.float32(np.mean(biggest_eigenval[:-1])), np.float32(biggest_eigenvec[:, 0])]
+            return [np.float32(biggest_eigenval), np.float32(biggest_eigenvec[:, 0])]
 
         self.spectral_norm_tensor = tf.py_func(get_eigenvalue_feature, [], tf.float32)
 

@@ -1,42 +1,32 @@
 continue_task: True
 constant_lr_model: False
-with_hessian_eigenvalue_features: False
+hessian_eigenvalue_features: 2
 with_hessian_eigenvector_features: False
 debug_mode: False
 hidden_state_size: 20
-n_meta_epochs: 128
-meta_early_stopping: 128
+n_meta_epochs: 256
+meta_early_stopping: 256
 classes_per_learner_set: 2
-meta_batch_size: 8
+meta_batch_size: 12
 learner_batch_size: 32
-n_learner_batches: 64
-backpropagation_depth: 12
+n_learner_batches: 32
+backpropagation_depth: 8
 backpropagation_padding: 4
 learner_train_size: 32
-learner_test_size: 64
+learner_test_size: 96
 n_train_sets: 64
 n_test_sets: 64
 meta_test_class_ratio: 0.3
-initial_learner_lr: 0.02
+initial_learner_lr: 0.03
 n_meta_valid_steps: 64
 dataset_key: "cifar100"
 logging_level: "info"
 random_seed: 12345
 lr_schedule_epochs:
   - 0
-  - 16
-  - 32
-  - 48
   - 64
-  - 80
-  - 96
-  - 112
+  - 128
 lr_schedule_rates:
   - 0.001
-  - 0.0005
   - 0.0001
-  - 0.00005
   - 0.00001
-  - 0.000005
-  - 0.000001
-  - 0.0000001
