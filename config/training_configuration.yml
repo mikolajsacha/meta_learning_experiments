@@ -1,6 +1,6 @@
 continue_task: True
 constant_lr_model: False
-hessian_eigenvalue_features: 2
+hessian_eigenvalue_features: 5
 with_hessian_eigenvector_features: False
 debug_mode: False
 hidden_state_size: 20
