@@ -80,7 +80,7 @@ def lstm_train_meta_learner(configuration: TrainingConfiguration, batch_size: in
         eigenval_input = Input(batch_shape=(batch_size, configuration.backpropagation_depth,
                                             configuration.hessian_eigenvalue_features),
                                name='hessian_eigenval_input_train')
-        lstm_inputs += preprocess_inputs([eigenval_input], common_layers)
+        lstm_inputs.append(eigenval_input)
         inputs.append(eigenval_input)
 
     if configuration.with_hessian_eigenvector_features and configuration.hessian_eigenvalue_features > 0:
@@ -88,7 +88,7 @@ def lstm_train_meta_learner(configuration: TrainingConfiguration, batch_size: in
                                             configuration.hessian_eigenvalue_features),
                                name='hessian_eigenvec_input_train')
         inputs.append(eigenvec_input)
-        lstm_inputs += preprocess_inputs([eigenvec_input], common_layers)
+        lstm_inputs.append(eigenvec_input)
 
     if configuration.constant_lr_model:
         final_grad = Lambda(lambda x: x[:, -1, :], name='final_grad_input')(grads_input)
@@ -166,7 +166,7 @@ def lstm_predict_meta_learner(learner: Model, eigenvals_callback: TopKEigenvalue
         inputs.append(eigenval_input)
         inputs.append(eigenvec_input)
 
-        lstm_inputs += preprocess_inputs([eigenval_repeated_input, eigenvec_input], common_layers)
+        lstm_inputs += [eigenval_repeated_input, eigenvec_input]
 
     elif configuration.hessian_eigenvalue_features > 0:
         eigenval_tensor = tf.reshape(eigenvals_callback.spectral_norm_tensor,
@@ -180,7 +180,7 @@ def lstm_predict_meta_learner(learner: Model, eigenvals_callback: TopKEigenvalue
 
         input_tensors.append(eigenval_tensor)
         inputs.append(eigenval_input)
-        lstm_inputs += preprocess_inputs([eigenval_repeated_input], common_layers)
+        lstm_inputs.append(eigenval_repeated_input)
 
     if configuration.constant_lr_model:
         final_grad = Lambda(lambda x: x[:, -1, :], name='final_grad_input')(grads_input)

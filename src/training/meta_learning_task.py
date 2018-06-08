@@ -348,7 +348,8 @@ class MetaLearningTask(object):
                              metrics=['accuracy'])
 
         eigenval_features = self.configuration.hessian_eigenvalue_features
-        self.eigenvals_callback = TopKEigenvaluesBatched(K=max(eigenval_features, 1),
+        self.eigenvals_callback = TopKEigenvaluesBatched(K=4,
+                                                         feature_K=eigenval_features,
                                                          batch_size=learner_batch_size, logger=self.logger,
                                                          save_dir="", save_eigenv=1)
         self.eigenvals_callback.model = self.learner

@@ -36,7 +36,8 @@ class TopKEigenvaluesBatched(Callback):
     See e.g. http://people.bath.ac.uk/mamamf/talks/lanczos.pdf
     """
 
-    def __init__(self, K, batch_size, logger, save_dir, save_eigenv=False, impl="tf", inference_mode=True):
+    def __init__(self, K, batch_size, logger, save_dir, save_eigenv=False, impl="tf", inference_mode=True,
+                 feature_K=None):
         super().__init__()
         self.K = K
         self.impl = impl
@@ -57,6 +58,7 @@ class TopKEigenvaluesBatched(Callback):
         self.spectral_norm_tensor = None
         self.spectral_norm_tensor_2 = None
         self.eigenvector_tensor = None
+        self.feature_K = feature_K if feature_K is not None else K
 
     def _construct_laszlo_operator_batched(self, dtype=np.float32):
         L = self.get_my_model().total_loss
@@ -117,11 +119,11 @@ class TopKEigenvaluesBatched(Callback):
         self.parameter_shapes = [K.int_shape(p) for p in self.get_my_model().trainable_weights]
 
         def get_eigenvalue_feature():
-            biggest_eigenval = self.compute_top(k=self.K, with_vectors=False)
+            biggest_eigenval = self.compute_top(k=self.feature_K, with_vectors=False)
             return np.float32(biggest_eigenval)
 
         def get_eigenvector_features():
-            biggest_eigenval, biggest_eigenvec = self.compute_top(k=self.K, with_vectors=True)
+            biggest_eigenval, biggest_eigenvec = self.compute_top(k=self.feature_K, with_vectors=True)
             return [np.float32(biggest_eigenval), np.float32(biggest_eigenvec[:, 0])]
 
         self.spectral_norm_tensor = tf.py_func(get_eigenvalue_feature, [], tf.float32)
