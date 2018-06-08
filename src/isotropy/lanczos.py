@@ -113,6 +113,8 @@ class TopKEigenvaluesBatched(Callback):
             self.logger.debug("Compiling TopKEignevaluesBattched Callback")
         _op = self._construct_laszlo_operator_batched()
         self._lanczos_tensor = {self.K: lanczos_bidiag(_op, self.K)}
+        if self.K != self.feature_K:
+            self._lanczos_tensor[self.feature_K] = lanczos_bidiag(_op, self.feature_K)
 
         self.parameters = self.get_my_model().trainable_weights
         self.parameter_names = [p.name for p in self.get_my_model().trainable_weights]
