@@ -209,7 +209,7 @@ class MetaPredictLearnerModel(Model, Optimizer):
                                            newshape=(1, len(inputs_history[3]), self.hessian_eigenvals))
             inputs_history[3] = np.repeat(inputs_history[3], axis=0, repeats=self.output_size)
         if len(inputs_history) > 4:
-            inputs_history[4] = np.expand_dims(np.transpose(inputs_history[4]), axis=-1)
+            inputs_history[4] = inputs_history[4].reshape(self.output_size, self.backprop_depth, self.hessian_eigenvals)
 
         # we need only final value of params_input for BPTT
         if self.backprop_depth != 1:
@@ -267,7 +267,7 @@ class MetaPredictLearnerModel(Model, Optimizer):
                                            newshape=(1, len(inputs_history[3]), self.hessian_eigenvals))
             inputs_history[3] = np.repeat(inputs_history[3], axis=0, repeats=self.output_size)
         if len(inputs_history) > 4:
-            inputs_history[4] = np.expand_dims(np.transpose(inputs_history[4]), axis=-1)
+            inputs_history[4] = inputs_history[4].reshape(self.output_size, self.backprop_depth, self.hessian_eigenvals)
 
         # we need only final value of params_input for BPTT
         if self.backprop_depth == 1:

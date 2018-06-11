@@ -126,7 +126,7 @@ class TopKEigenvaluesBatched(Callback):
 
         def get_eigenvector_features():
             biggest_eigenval, biggest_eigenvec = self.compute_top(k=self.feature_K, with_vectors=True)
-            return [np.float32(biggest_eigenval), np.float32(biggest_eigenvec[:, 0])]
+            return [np.float32(biggest_eigenval), np.float32(biggest_eigenvec[:, :self.feature_K])]
 
         self.spectral_norm_tensor = tf.py_func(get_eigenvalue_feature, [], tf.float32)
 
