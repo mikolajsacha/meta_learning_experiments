@@ -187,15 +187,15 @@ def analyze_training(meta_dataset: MetaLearnerDataset,
                     break
                 learner.train_on_batch(training_batch[0], training_batch[1])
 
-                evaluation = learner.evaluate(train_x, train_y, verbose=0)
-                assert isinstance(evaluation, list)
-                current_train_losses.append(evaluation[0])
-                current_train_accuracies.append(evaluation[1])
+                train_evaluation = learner.evaluate(train_x, train_y, verbose=0)
+                assert isinstance(train_evaluation, list)
+                current_train_losses.append(train_evaluation[0])
+                current_train_accuracies.append(train_evaluation[1])
 
-                evaluation = learner.evaluate(valid_x, valid_y, verbose=0)
-                assert isinstance(evaluation, list)
-                current_valid_losses.append(evaluation[0])
-                current_valid_accuracies.append(evaluation[1])
+                valid_evaluation = learner.evaluate(valid_x, valid_y, verbose=0)
+                assert isinstance(valid_evaluation, list)
+                current_valid_losses.append(valid_evaluation[0])
+                current_valid_accuracies.append(valid_evaluation[1])
 
                 eigen = np.mean(eigenvals_callback.compute_top_K(with_vectors=False)[:-1])
                 current_eigen.append(eigen)
@@ -209,5 +209,6 @@ def analyze_training(meta_dataset: MetaLearnerDataset,
             prg_bar.update(1)
 
     prg_bar.close()
+    print()
 
     return train_losses, train_accuracies, valid_losses, valid_accuracies, hessian_eigen

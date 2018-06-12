@@ -80,6 +80,8 @@ class MetaLearningTask(object):
         self.debug_mode = configuration.debug_mode
 
         self.logger = configuration.logger
+        self.initial_meta_lr = configuration.initial_meta_lr
+        self.lr_history_path = os.path.join(os.environ['LOG_DIR'], 'meta_lr_history.txt')
 
         if not configuration.continue_task or not task_checkpoint_path or not os.path.isfile(task_checkpoint_path):
             self.logger.info('Initializing new MetaLearningTask')
@@ -95,6 +97,9 @@ class MetaLearningTask(object):
                     self.starting_epoch = int(line)
                 elif i == 1:
                     self.best_loss = float(line)
+            if os.path.isfile(self.lr_history_path):
+                for line in open(self.task_checkpoint_path, 'r'):
+                    self.initial_meta_lr = float(line)
 
             self.logger.info('Continuing MetaLearningTask after {} epochs'.format(self.starting_epoch))
 
@@ -379,7 +384,6 @@ class MetaLearningTask(object):
 
     def meta_train(
             self,
-            lr_scheduler: Callable[[int], float],
             n_meta_epochs: int,
             meta_batch_size: int,
             n_learner_batches: int,
@@ -389,7 +393,6 @@ class MetaLearningTask(object):
             learner_batch_size: int):
         """
         Trains meta-learning model for a few epochs
-        :param lr_scheduler: function that takes number of meta-epoch and returns meta-learning rate
         :param n_meta_epochs: number of meta-epochs
         :param meta_batch_size: size of meta-batch of Learners per one meta-optimizer weight update
         :param n_learner_batches: number of training batches
@@ -398,10 +401,12 @@ class MetaLearningTask(object):
         :param n_meta_valid_steps: number of meta-validation batches per epoch
         :param learner_batch_size: batch size when training Learner
         """
-        lr = lr_scheduler(self.starting_epoch)
+        lr = self.initial_meta_lr
+
         self.logger.info("Starting with meta-learning rate: {}".format(lr))
 
         epochs_with_no_gain = 0
+        epochs_with_no_gain_lr = 0
 
         self._compile(lr, self.starting_epoch, learner_batch_size)
 
@@ -440,13 +445,15 @@ class MetaLearningTask(object):
             if self.optimizer_weights is not None:
                 self.meta_learner.train_model.optimizer.set_weights(self.optimizer_weights)
 
-            prev_lr = lr
-            lr = lr_scheduler(epoch)
+            if epochs_with_no_gain_lr >= self.configuration.meta_lr_early_stopping:
+                new_lr = lr / self.configuration.meta_lr_divisor
 
-            if prev_lr != lr:
                 self.logger.info("Changing meta-learning rate from {} to {} (meta-epoch {})"
-                                 .format(prev_lr, lr, epoch + 1))
+                                 .format(lr, new_lr, epoch + 1))
+
+                lr = new_lr
                 self.meta_learner.train_model.optimizer.update_lr(lr)
+                epochs_with_no_gain_lr = 0
 
             self.meta_train_epoch(
                 meta_batch_size=meta_batch_size,
@@ -472,14 +479,20 @@ class MetaLearningTask(object):
             if self.best_loss is None or valid_metrics[loss_ind] < self.best_loss:
                 self.best_loss = valid_metrics[loss_ind]
                 epochs_with_no_gain = 0
+                epochs_with_no_gain_lr = 0
                 self.meta_learner.train_model.save(self.best_meta_learner_weights_path)
             else:
                 epochs_with_no_gain += 1
+                epochs_with_no_gain_lr += 1
 
             with open(self.task_checkpoint_path, 'w') as f:
                 f.write(str(epoch + 1))
                 f.write('\n')
                 f.write(str(self.best_loss))
+
+            with open(self.lr_history_path, 'w') as f:
+                f.write(str(lr))
+                f.write('\n')
 
             if epochs_with_no_gain >= meta_early_stopping:
                 self.logger.info("Early stopping after {} meta-epochs".format(epoch + 1))

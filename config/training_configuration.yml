@@ -4,8 +4,9 @@ hessian_eigenvalue_features: 2
 with_hessian_eigenvector_features: True
 debug_mode: False
 hidden_state_size: 20
-n_meta_epochs: 384
-meta_early_stopping: 384
+n_meta_epochs: 400
+meta_early_stopping: 64
+meta_lr_early_stopping: 16
 classes_per_learner_set: 2
 meta_batch_size: 8
 learner_batch_size: 32
@@ -22,11 +23,5 @@ n_meta_valid_steps: 64
 dataset_key: "cifar100"
 logging_level: "info"
 random_seed: 12345
-lr_schedule_epochs:
-  - 0
-  - 128
-  - 256
-lr_schedule_rates:
-  - 0.001
-  - 0.0001
-  - 0.00001
+initial_meta_lr: 0.001
+meta_lr_divisor: 2.0

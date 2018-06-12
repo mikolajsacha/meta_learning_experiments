@@ -14,7 +14,6 @@ class TrainingConfiguration(object):
             constant_lr_model: bool,
             dataset_key: str,
             logger: logging.Logger,
-            lr_schedule: List[Tuple[int, float]],
             logging_level: int,
             meta_batch_size: int,
             learner_batch_size: int,
@@ -28,6 +27,9 @@ class TrainingConfiguration(object):
             n_test_sets: int,
             n_meta_epochs: int,
             meta_early_stopping: int,
+            meta_lr_early_stopping: int,
+            meta_lr_divisor: float,
+            initial_meta_lr: float,
             meta_test_class_ratio: float,
             initial_learner_lr: float,
             hidden_state_size: int,
@@ -37,7 +39,6 @@ class TrainingConfiguration(object):
             with_hessian_eigenvector_features: int):
         self.continue_task = continue_task
         self.debug_mode = debug_mode
-        self.lr_schedule = lr_schedule
         self.dataset_key = dataset_key
         self.logger = logger
         self.logging_level = logging_level
@@ -53,9 +54,12 @@ class TrainingConfiguration(object):
         self.n_test_sets = n_test_sets
         self.meta_test_class_ratio = meta_test_class_ratio
         self.initial_lr = initial_learner_lr
+        self.initial_meta_lr = initial_meta_lr
+        self.meta_lr_divisor = meta_lr_divisor
         self.n_meta_valid_steps = n_meta_valid_steps
         self.n_meta_epochs = n_meta_epochs
         self.meta_early_stopping = meta_early_stopping
+        self.meta_lr_early_stopping = meta_lr_early_stopping
         self.hidden_state_size = hidden_state_size
         self.random_seed = random_seed
         self.hessian_eigenvalue_features = hessian_eigenvalue_features
@@ -77,7 +81,6 @@ class TrainingConfiguration(object):
             'debug_mode': self.debug_mode,
             'backpropagation_depth': self.backpropagation_depth,
             'backpropagation_padding': self.backpropagation_padding,
-            'lr_schedule': self.lr_schedule,
             'dataset_key': self.dataset_key,
             'logging_level': self.logging_level,
             'meta_batch_size': self.meta_batch_size,
@@ -94,7 +97,10 @@ class TrainingConfiguration(object):
             'n_meta_epochs': self.n_meta_epochs,
             'meta_early_stopping': self.meta_early_stopping,
             'hidden_state_size': self.hidden_state_size,
-            'random_seed': self.random_seed
+            'random_seed': self.random_seed,
+            'meta_lr_early_stopping': self.meta_lr_early_stopping,
+            'initial_meta_lr': self.initial_meta_lr,
+            'meta_lr_divisor': self.meta_lr_divisor
         }
         msg = '\n'.join("{}: {}".format(k, v) for k, v in sorted(params.items(), key=lambda x: x[0]))
         self.logger.info("TRAINING CONFIGURATION:\n" + msg)
@@ -106,14 +112,12 @@ def read_configuration(path: str) -> TrainingConfiguration:
 
     log_level = str_to_log_level(conf['logging_level'])
     logger = configure_logger(name='train-meta-model', level=log_level)
-    lr_schedule = list(zip(conf['lr_schedule_epochs'], conf['lr_schedule_rates']))
 
     return TrainingConfiguration(
         continue_task=conf['continue_task'],
         debug_mode=conf['debug_mode'],
         dataset_key=conf['dataset_key'],
         logger=logger,
-        lr_schedule=lr_schedule,
         logging_level=conf['logging_level'],
         meta_batch_size=conf['meta_batch_size'],
         learner_batch_size=conf['learner_batch_size'],
@@ -134,4 +138,7 @@ def read_configuration(path: str) -> TrainingConfiguration:
         random_seed=conf['random_seed'],
         constant_lr_model=conf['constant_lr_model'],
         hessian_eigenvalue_features=conf['hessian_eigenvalue_features'],
-        with_hessian_eigenvector_features=conf['with_hessian_eigenvector_features'])
+        with_hessian_eigenvector_features=conf['with_hessian_eigenvector_features'],
+        meta_lr_divisor=conf['meta_lr_divisor'],
+        initial_meta_lr=conf['initial_meta_lr'],
+        meta_lr_early_stopping=conf['meta_lr_early_stopping'])

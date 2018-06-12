@@ -69,7 +69,6 @@ def run_meta_learning(conf: TrainingConfiguration, x: np.ndarray, y: np.ndarray)
         best_meta_learner_weights_path=os.path.join(log_dir, "meta_weights_best.h5"))
 
     meta_learning_task.meta_train(
-        lr_scheduler=get_lr_scheduler(conf.lr_schedule),
         n_meta_epochs=conf.n_meta_epochs,
         meta_early_stopping=conf.meta_early_stopping,
         n_learner_batches=conf.n_learner_batches,
