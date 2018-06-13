@@ -98,7 +98,7 @@ class MetaLearningTask(object):
                 elif i == 1:
                     self.best_loss = float(line)
             if os.path.isfile(self.lr_history_path):
-                for line in open(self.task_checkpoint_path, 'r'):
+                for line in open(self.lr_history_path, 'r'):
                     self.initial_meta_lr = float(line)
 
             self.logger.info('Continuing MetaLearningTask after {} epochs'.format(self.starting_epoch))
