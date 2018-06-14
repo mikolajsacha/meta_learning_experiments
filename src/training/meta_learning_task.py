@@ -490,7 +490,7 @@ class MetaLearningTask(object):
                 f.write('\n')
                 f.write(str(self.best_loss))
 
-            with open(self.lr_history_path, 'w') as f:
+            with open(self.lr_history_path, 'a') as f:
                 f.write(str(lr))
                 f.write('\n')
 
